@@ -1,0 +1,81 @@
+name: Discover stores
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'store_finder/**'
+      - 'config/**'
+      - 'requirements.txt'
+      - '.github/workflows/discover.yml'
+  workflow_dispatch:
+    inputs:
+      query_budget:
+        description: Number of search queries (1–100)
+        default: '14'
+        required: true
+      results_per_query:
+        description: Maximum results per query (1–100)
+        default: '20'
+        required: true
+      smoke:
+        description: Test search without saving accounts
+        type: boolean
+        default: false
+  schedule:
+    # UTC: approximately 10:23 and 22:23 Europe/Minsk. Timing can drift.
+    - cron: '23 7,19 * * *'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: store-discovery
+  cancel-in-progress: false
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RESULTS_ENCRYPTION_KEY: ${{ secrets.RESULTS_ENCRYPTION_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+      QUERY_BUDGET: ${{ inputs.query_budget || '14' }}
+      RESULTS_PER_QUERY: ${{ inputs.results_per_query || '20' }}
+      REQUEST_SMOKE: ${{ inputs.smoke }}
+      EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validate implementation
+        run: python -m unittest discover -s tests -v
+      - name: Search and save
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" || "$REQUEST_SMOKE" == "true" ]]; then
+            python -m store_finder run --smoke --query-budget 4 --results-per-query 10
+          elif [[ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" && -z "$RESULTS_ENCRYPTION_KEY" ]]; then
+            echo '::error::Add GOOGLE_SERVICE_ACCOUNT_JSON and share the destination spreadsheet with the service account.'
+            exit 1
+          else
+            python -m store_finder run --restore-github --query-budget "$QUERY_BUDGET" --results-per-query "$RESULTS_PER_QUERY"
+          fi
+      - name: Save encrypted database
+        if: always() && hashFiles('output/leads.fernet') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: leads-encrypted
+          path: output/leads.fernet
+          retention-days: 90
+          if-no-files-found: error
+      - name: Save public aggregate report
+        if: always() && hashFiles('output/summary.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovery-summary
+          path: output/summary.json
+          retention-days: 14

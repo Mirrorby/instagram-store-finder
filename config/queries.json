@@ -1,0 +1,102 @@
+{
+  "languages": [
+    {"code": "en", "terms": [
+      {"niche": "jewelry", "text": "jewelry shop"},
+      {"niche": "clothing", "text": "clothing boutique \"orders\""},
+      {"niche": "candles", "text": "handmade candles shop"},
+      {"niche": "bags", "text": "bags shop \"whatsapp\""},
+      {"niche": "ceramics", "text": "ceramics pottery shop"}
+    ]},
+    {"code": "es", "terms": [
+      {"niche": "jewelry", "text": "joyas tienda"},
+      {"niche": "clothing", "text": "tienda ropa pedidos"},
+      {"niche": "candles", "text": "velas tienda artesanal"},
+      {"niche": "bags", "text": "bolsos tienda whatsapp"},
+      {"niche": "ceramics", "text": "cerámica tienda pedidos"}
+    ]},
+    {"code": "pt", "terms": [
+      {"niche": "jewelry", "text": "joias loja encomendas"},
+      {"niche": "clothing", "text": "loja roupa pedidos whatsapp"},
+      {"niche": "candles", "text": "velas artesanais loja"},
+      {"niche": "bags", "text": "bolsas loja encomendas"},
+      {"niche": "ceramics", "text": "cerâmica loja artesanal"}
+    ]},
+    {"code": "ru", "terms": [
+      {"niche": "jewelry", "text": "магазин украшения"},
+      {"niche": "clothing", "text": "магазин одежды заказы"},
+      {"niche": "candles", "text": "свечи ручной работы магазин"},
+      {"niche": "bags", "text": "сумки магазин доставка"},
+      {"niche": "ceramics", "text": "керамика магазин заказать"}
+    ]},
+    {"code": "fr", "terms": [
+      {"niche": "jewelry", "text": "bijoux boutique"},
+      {"niche": "clothing", "text": "boutique vêtements livraison"},
+      {"niche": "candles", "text": "bougies artisanales boutique"},
+      {"niche": "bags", "text": "sacs boutique commande"},
+      {"niche": "ceramics", "text": "céramique boutique artisanale"}
+    ]},
+    {"code": "de", "terms": [
+      {"niche": "jewelry", "text": "schmuck shop bestellung"},
+      {"niche": "clothing", "text": "kleidung boutique versand"},
+      {"niche": "candles", "text": "kerzen handgemacht shop"},
+      {"niche": "bags", "text": "taschen shop bestellen"},
+      {"niche": "ceramics", "text": "keramik shop handgemacht"}
+    ]},
+    {"code": "it", "terms": [
+      {"niche": "jewelry", "text": "gioielli negozio"},
+      {"niche": "clothing", "text": "abbigliamento negozio spedizione"},
+      {"niche": "candles", "text": "candele artigianali negozio"},
+      {"niche": "bags", "text": "borse negozio ordini"},
+      {"niche": "ceramics", "text": "ceramica artigianale negozio"}
+    ]},
+    {"code": "tr", "terms": [
+      {"niche": "jewelry", "text": "takı mağaza"},
+      {"niche": "clothing", "text": "giyim mağaza kargo"},
+      {"niche": "candles", "text": "mum el yapımı sipariş"},
+      {"niche": "bags", "text": "çanta mağaza sipariş"},
+      {"niche": "ceramics", "text": "seramik el yapımı sipariş"}
+    ]},
+    {"code": "ar", "terms": [
+      {"niche": "jewelry", "text": "مجوهرات متجر للطلب"},
+      {"niche": "clothing", "text": "ملابس متجر توصيل"},
+      {"niche": "candles", "text": "شموع متجر طلبات"},
+      {"niche": "bags", "text": "حقائب متجر واتساب"},
+      {"niche": "ceramics", "text": "خزف متجر طلبات"}
+    ]},
+    {"code": "id", "terms": [
+      {"niche": "jewelry", "text": "perhiasan toko pesan"},
+      {"niche": "clothing", "text": "pakaian toko order whatsapp"},
+      {"niche": "candles", "text": "lilin handmade toko"},
+      {"niche": "bags", "text": "tas toko pengiriman"},
+      {"niche": "ceramics", "text": "keramik toko handmade"}
+    ]},
+    {"code": "pl", "terms": [
+      {"niche": "jewelry", "text": "biżuteria sklep zamówienia"},
+      {"niche": "clothing", "text": "odzież sklep wysyłka"},
+      {"niche": "candles", "text": "świece ręcznie robione sklep"},
+      {"niche": "bags", "text": "torby sklep zamówienia"},
+      {"niche": "ceramics", "text": "ceramika sklep rękodzieło"}
+    ]},
+    {"code": "hi", "terms": [
+      {"niche": "jewelry", "text": "ज्वेलरी दुकान ऑर्डर"},
+      {"niche": "clothing", "text": "कपड़े दुकान ऑर्डर"},
+      {"niche": "candles", "text": "मोमबत्ती दुकान"},
+      {"niche": "bags", "text": "बैग दुकान ऑर्डर"},
+      {"niche": "ceramics", "text": "ceramics handmade shop"}
+    ]},
+    {"code": "ja", "terms": [
+      {"niche": "jewelry", "text": "アクセサリー 販売"},
+      {"niche": "clothing", "text": "服 ショップ 通販"},
+      {"niche": "candles", "text": "キャンドル ハンドメイド 販売"},
+      {"niche": "bags", "text": "バッグ ハンドメイド 販売"},
+      {"niche": "ceramics", "text": "陶器 ショップ 通販"}
+    ]},
+    {"code": "ko", "terms": [
+      {"niche": "jewelry", "text": "주얼리 주문 판매"},
+      {"niche": "clothing", "text": "의류 쇼핑몰 주문"},
+      {"niche": "candles", "text": "캔들 수제 판매"},
+      {"niche": "bags", "text": "가방 주문 판매"},
+      {"niche": "ceramics", "text": "도자기 판매 주문"}
+    ]}
+  ]
+}

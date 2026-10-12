@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+output/
+*.fernet
+*.csv
+state.json
+.pytest_cache/
