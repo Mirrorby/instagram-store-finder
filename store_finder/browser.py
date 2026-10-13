@@ -21,10 +21,14 @@ def apply_payload(lead, payload):
 
 
 class BrowserProfiles:
+    def __init__(self, headless=True, storage_state=None):
+        self.headless = headless
+        self.storage_state = storage_state
+
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         self.runtime = sync_playwright().start()
-        options = {"headless": True}
+        options = {"headless": self.headless}
         transport = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
         if transport:
             proxy = urlparse(transport)
@@ -36,7 +40,8 @@ class BrowserProfiles:
             options["executable_path"] = executable
         try:
             self.browser = self.runtime.chromium.launch(**options)
-            self.context = self.browser.new_context(locale="en-US", ignore_https_errors=os.environ.get("BROWSER_IGNORE_HTTPS_ERRORS") == "1")
+            self.context = self.browser.new_context(locale="en-US", storage_state=str(self.storage_state) if self.storage_state else None,
+                ignore_https_errors=os.environ.get("BROWSER_IGNORE_HTTPS_ERRORS") == "1")
         except Exception:
             self.runtime.stop()
             raise

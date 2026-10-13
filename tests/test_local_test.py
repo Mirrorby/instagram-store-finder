@@ -1,0 +1,41 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from store_finder.local_test import local_test, save_session, usernames
+
+
+class LocalTestTests(unittest.TestCase):
+    def test_accounts_are_profiles_and_budget_is_bounded(self):
+        self.assertEqual(usernames(['@example_shop', 'https://www.instagram.com/example_shop/']), ['example_shop'])
+        for inputs in [['https://www.instagram.com/p/post/'], ['https://other.test/shop/'], [f'shop{i}' for i in range(11)]]:
+            with self.assertRaises(ValueError): usernames(inputs)
+
+    def test_session_file_is_private_and_replaced(self):
+        class Context:
+            def storage_state(self): return {'cookies': [], 'origins': []}
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)/'auth/session.json'
+            save_session(Context(), target)
+            save_session(Context(), target)
+            self.assertEqual(os.stat(target).st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(target.read_text()), Context().storage_state())
+            self.assertEqual(list(target.parent.iterdir()), [target])
+
+    def test_local_run_uses_session_stops_on_denial_and_exports_only_profiles(self):
+        class Browser:
+            def __init__(self, **kwargs): self.kwargs = kwargs
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def fetch(self, lead): lead.update(browser_status='restricted', profile_status='restricted')
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory)/'session.json'; session.write_text('{"cookies": ["SECRET"]}')
+            output = Path(directory)/'result.json'
+            with patch('store_finder.local_test.BrowserProfiles', Browser), patch('store_finder.local_test.print'):
+                self.assertEqual(local_test(['example_shop', 'second_shop'], session, output), 0)
+            report = json.loads(output.read_text())
+            self.assertEqual(report['summary']['tested'], 1)
+            self.assertFalse(report['summary']['sheets_written'])
+            self.assertNotIn('SECRET', output.read_text())

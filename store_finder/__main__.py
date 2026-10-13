@@ -11,6 +11,7 @@ from .search import SearchClient
 from .storage import empty_state, export_state, read_state, write_state
 from .sheets import SheetsStore, configured_sheet
 from .enrichment import enrich
+from .local_test import login, local_test
 
 
 def main():
@@ -28,10 +29,21 @@ def main():
     run.add_argument("--enrich-only", action="store_true")
     run.add_argument("--enrichment-budget", type=int, default=12)
     commands.add_parser("generate-key")
+    auth = commands.add_parser("login", help="Open Chromium for manual Instagram login")
+    auth.add_argument("--session", type=Path, default=Path(".auth/instagram.json"))
+    local = commands.add_parser("local-test", help="Test public profiles locally without writing Google Sheets")
+    local.add_argument("--accounts", nargs="+", required=True)
+    local.add_argument("--session", type=Path, default=Path(".auth/instagram.json"))
+    local.add_argument("--output", type=Path, default=Path("output/local-test.json"))
+    local.add_argument("--headless", action="store_true")
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
     args = parser.parse_args()
+    if args.command == "login":
+        return login(args.session)
+    if args.command == "local-test":
+        return local_test(args.accounts, args.session, args.output, args.headless)
     if args.command == "generate-key":
         print(Fernet.generate_key().decode())
         return 0

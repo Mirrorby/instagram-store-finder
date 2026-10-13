@@ -7,3 +7,5 @@ output/
 *.csv
 state.json
 .pytest_cache/
+.auth/
+accounts.txt
