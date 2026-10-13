@@ -1,4 +1,5 @@
 """Read current public profile HTML; parse structured provider data when available."""
+from __future__ import annotations
 import html
 import json
 import re

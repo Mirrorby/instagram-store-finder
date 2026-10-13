@@ -2,12 +2,24 @@ import json
 import os
 import tempfile
 import unittest
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from store_finder.local_test import local_test, save_session, usernames
 
 
 class LocalTestTests(unittest.TestCase):
+    def test_cli_local_commands_can_start(self):
+        for command in ['login', 'local-test']:
+            result = subprocess.run([sys.executable, '-m', 'store_finder', command, '--help'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(command, result.stdout)
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, '-m', 'store_finder', 'local-test', '--accounts', 'example_shop', '--session', str(Path(directory)/'missing.json')], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn('Сначала выполните', result.stdout)
+
     def test_accounts_are_profiles_and_budget_is_bounded(self):
         self.assertEqual(usernames(['@example_shop', 'https://www.instagram.com/example_shop/']), ['example_shop'])
         for inputs in [['https://www.instagram.com/p/post/'], ['https://other.test/shop/'], [f'shop{i}' for i in range(11)]]:

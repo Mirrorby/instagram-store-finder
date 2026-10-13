@@ -1,6 +1,6 @@
 # Проверка Instagram на Mac
 
-Нужны Python 3.10 или новее и копия репозитория. Если Python отсутствует,
+Для локального теста нужны Python 3.9 или новее и копия репозитория. Если Python отсутствует,
 установите его с https://www.python.org/downloads/macos/.
 
 В Терминале перейдите в папку проекта. Для новой копии:
@@ -15,10 +15,17 @@ cd instagram-store-finder
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements-local.txt
 python -m playwright install chromium
 python -m store_finder login
 ```
+
+Локальный режим устанавливает только Playwright и requests. Поиск магазинов
+и серверная запись в Google Sheets используют полный `requirements.txt`
+и Python 3.10+. Ошибка `No matching distribution found for ddgs==9.11.4`
+при установке полного набора на Python 3.9 устраняется переходом на этот
+локальный набор; менять системный Python для проверки браузера не требуется.
 
 В открывшемся Chromium войдите в Instagram самостоятельно, завершите подтверждение
 входа, дождитесь ленты, вернитесь в Терминал и нажмите Enter. Окно закроется.

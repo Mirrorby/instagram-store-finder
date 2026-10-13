@@ -17,3 +17,16 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
+  local-python39:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: requirements-local.txt
+      - run: python -m pip install -r requirements-local.txt
+      - run: python -m unittest discover -s tests -p test_local_test.py -v
+      - run: python -m store_finder local-test --help

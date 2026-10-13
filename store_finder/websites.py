@@ -1,3 +1,4 @@
+from __future__ import annotations
 import html
 import re
 from urllib.parse import parse_qs, urlparse, urlunparse

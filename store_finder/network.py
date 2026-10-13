@@ -1,4 +1,5 @@
 """Bounded public-page requests; validate every redirect and distinguish access denial."""
+from __future__ import annotations
 import ipaddress
 import socket
 from dataclasses import dataclass

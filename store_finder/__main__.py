@@ -3,15 +3,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from cryptography.fernet import Fernet
-from .github_state import restore
-from .queries import load_queries
-from .runner import discover, write_summary
-from .search import SearchClient
-from .storage import empty_state, export_state, read_state, write_state
-from .sheets import SheetsStore, configured_sheet
-from .enrichment import enrich
-from .local_test import login, local_test
 
 
 def main():
@@ -41,19 +32,29 @@ def main():
     export.add_argument("--output", type=Path, default=Path("output/export"))
     args = parser.parse_args()
     if args.command == "login":
+        from .local_test import login
         return login(args.session)
     if args.command == "local-test":
+        from .local_test import local_test
         return local_test(args.accounts, args.session, args.output, args.headless)
+    from cryptography.fernet import Fernet
     if args.command == "generate-key":
         print(Fernet.generate_key().decode())
         return 0
     key = os.environ.get("RESULTS_ENCRYPTION_KEY", "").strip()
+    from .storage import empty_state, export_state, read_state, write_state
     if args.command == "export":
         if not key:
             parser.error("Set RESULTS_ENCRYPTION_KEY to decrypt results")
         export_state(args.archive, key, args.output)
         print("Decrypted state.json and leads.csv into the local output directory")
         return 0
+    from .github_state import restore
+    from .queries import load_queries
+    from .runner import discover, write_summary
+    from .search import SearchClient
+    from .sheets import SheetsStore, configured_sheet
+    from .enrichment import enrich
     if not 1 <= args.query_budget <= 100 or not 1 <= args.results_per_query <= 100 or args.delay < 0:
         parser.error("Query and result budgets must be 1..100; delay must not be negative")
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]

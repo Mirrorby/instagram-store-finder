@@ -4,7 +4,6 @@ import json
 import os
 import zipfile
 from pathlib import Path
-from cryptography.fernet import Fernet, InvalidToken
 
 
 def empty_state() -> dict:
@@ -12,6 +11,7 @@ def empty_state() -> dict:
 
 
 def read_state(path: Path, key: str) -> dict:
+    from cryptography.fernet import Fernet, InvalidToken
     try:
         plaintext = Fernet(key.encode()).decrypt(path.read_bytes())
     except InvalidToken as exc:
@@ -43,6 +43,7 @@ def csv_bytes(leads: dict) -> bytes:
 
 
 def write_state(path: Path, state: dict, key: str):
+    from cryptography.fernet import Fernet
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("state.json", json.dumps(state, ensure_ascii=False))

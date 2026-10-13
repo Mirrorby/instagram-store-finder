@@ -1,0 +1,3 @@
+# Local Chromium checks: Python 3.9+. No search / Google Sheets dependencies.
+requests==2.32.5
+playwright==1.58.0

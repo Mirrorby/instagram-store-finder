@@ -6,10 +6,9 @@ import time
 from collections import Counter
 from pathlib import Path
 from .browser import BrowserProfiles
-from .enrichment import settings
 from .models import merge_result, now, profile_username
 from .network import Fetcher
-from .qualification import qualify
+from .qualification import qualify, settings
 from .scoring import score
 from .sheets import LABELS
 from .websites import check_websites

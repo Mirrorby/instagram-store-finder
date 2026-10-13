@@ -1,4 +1,10 @@
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+
+
+def settings() -> dict:
+    return json.loads(Path("config/qualification.json").read_text())
 
 
 def qualify(lead: dict, config: dict):

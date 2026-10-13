@@ -1,21 +1,15 @@
-import json
 import time
 from collections import Counter
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from contextlib import ExitStack
 from .browser import BrowserProfiles
 from .models import now
 from .network import Fetcher
-from .profiles import apply_indexed_data, apply_profile_record, fetch_profile, parse_indexed_post
-from .qualification import qualify
+from .profiles import apply_indexed_data, fetch_profile, parse_indexed_post
+from .qualification import qualify, settings
 from .scoring import score
 from .search import SearchUnavailable
 from .websites import check_websites
-
-
-def settings() -> dict:
-    return json.loads(Path("config/qualification.json").read_text())
 
 
 def candidates(state: dict, config: dict, budget: int) -> list[dict]:
