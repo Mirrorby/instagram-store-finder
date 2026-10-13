@@ -1,0 +1,57 @@
+name: Cloud profile checks
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Accounts to check (1–20)'
+        default: '20'
+        required: true
+      force:
+        description: 'Ignore the daily guard for a manual test'
+        type: boolean
+        default: false
+  schedule:
+    # Backup daily schedule: approximately 11:30 Europe/Minsk.
+    - cron: '30 8 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: store-discovery
+  cancel-in-progress: false
+jobs:
+  cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+      PROFILE_LIMIT: ${{ inputs.limit || '20' }}
+      FORCE: ${{ inputs.force }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium --only-shell
+      - run: python -m unittest discover -s tests -v
+      - name: Check configuration
+        run: |
+          if [[ -z "$APIFY_API_TOKEN" ]]; then
+            echo '::error::Add APIFY_API_TOKEN to GitHub Actions secrets. Use Apify Free without a payment card.'
+            exit 1
+          fi
+      - name: Read profiles, check websites, update Sheets
+        run: |
+          args=(--limit "$PROFILE_LIMIT" --max-charge 0.10)
+          if [[ "$FORCE" == "true" ]]; then args+=(--force); fi
+          python -m store_finder cloud-enrich "${args[@]}"
+      - name: Save aggregate report
+        if: always() && hashFiles('output/cloud-summary.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-summary
+          path: output/cloud-summary.json
+          retention-days: 14

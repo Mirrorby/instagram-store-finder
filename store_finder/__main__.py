@@ -30,6 +30,11 @@ def main():
     local.add_argument("--chrome", action="store_true", help="Use the open, authorised Chrome session; no new login")
     local.add_argument("--chrome-user-data-dir", type=Path)
     local.add_argument("--cdp-endpoint", help="Local Chrome server address, e.g. http://127.0.0.1:9222")
+    cloud = commands.add_parser('cloud-enrich', help='Check existing Sheet accounts through the cloud profile scraper')
+    cloud.add_argument('--limit', type=int, default=20)
+    cloud.add_argument('--output', type=Path, default=Path('output/cloud-summary.json'))
+    cloud.add_argument('--force', action='store_true', help='Ignore the daily guard for an explicit manual test')
+    cloud.add_argument('--max-charge', type=float, default=0.10)
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
@@ -42,6 +47,17 @@ def main():
         try:
             return local_test(args.accounts, args.session, args.output, args.headless, args.chrome, args.chrome_user_data_dir, args.cdp_endpoint)
         except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    if args.command == 'cloud-enrich':
+        from .cloud import cloud_enrich
+        from .apify_profiles import ApifyError
+        try:
+            return cloud_enrich(args.limit, args.output, args.force, args.max_charge)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        except ApifyError as exc:
             print(str(exc), file=sys.stderr)
             return 2
     from cryptography.fernet import Fernet

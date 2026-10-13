@@ -63,8 +63,11 @@ def qualify(lead: dict, config: dict):
     if site in {"restricted", "temporary", "working_hub"}:
         reasons.append({"restricted": "Сайт ограничил автоматическую проверку", "temporary": "Временная ошибка сайта — нужна повторная проверка", "working_hub": "Есть страница ссылок; наличие магазина требует проверки"}[site])
     confirmed_site = lead.get("website_source") in {"profile_html", "apify", "chromium"}
+    profile_blocked = lead.get('profile_status') in {'restricted', 'unavailable', 'unknown'}
+    if profile_blocked:
+        reasons.append('Текущая проверка профиля не завершена')
     eligible = (not rejected and lead.get("classification") == "likely_store" and followers is not None
-                and lead["activity_status"] == "active" and confirmed_site
+                and not profile_blocked and lead["activity_status"] == "active" and confirmed_site
                 and site in {"missing", "broken", "empty", "tls_error"})
     lead["qualification"] = "rejected" if rejected else "suitable" if eligible else "review"
     lead["qualification_reason"] = "; ".join(reasons) or "Активный магазин без рабочего сайта"

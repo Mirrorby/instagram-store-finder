@@ -235,6 +235,40 @@ class SheetsStore:
             ["cursor", state["cursor"]], ["cycle", state["cycle"]], ["runs", state["runs"]]], value_input_option="RAW")
         return {"updated": len(updates) // 2, "added": len(additions)}
 
+    def save_enrichment(self, profiles: list[dict]) -> dict:
+        """Update only tested, still-existing accounts; leave search cursor alone."""
+        from .observations import MANUAL_EXCLUSIONS, merge_enrichment
+        current = self.load()
+        changed, skipped = {}, 0
+        for profile in profiles:
+            name = profile['username']
+            lead = current['leads'].get(name)
+            if not lead or lead.get('review_status') in MANUAL_EXCLUSIONS:
+                skipped += 1
+                continue
+            changed[name] = merge_enrichment(lead, profile)
+        by_username = {str(row[0]).strip().lstrip('@').lower(): number
+                       for number, row in enumerate(self.rows, 2) if row and row[0]}
+        updates = []
+        for name, lead in changed.items():
+            number, values = by_username[name], sheet_row(lead)
+            # Preserve profile link chips, search evidence, discovery dates,
+            # country/language and all Q:T manual fields.
+            for left, right, first, last in [('C', 'C', 2, 3), ('E', 'F', 4, 6),
+                                           ('H', 'I', 7, 9), ('P', 'P', 15, 16),
+                                           ('U', LAST_COLUMN, 20, len(HEADERS))]:
+                updates.append({'range': f'{left}{number}:{right}{number}', 'values': [values[first:last]]})
+        for start in range(0, len(updates), 100):
+            self.sheet.batch_update(updates[start:start + 100], value_input_option='RAW')
+        return {'updated': len(changed), 'skipped': skipped}
+
+    def cloud_last_attempt(self):
+        rows = self.meta.get('A7:B7', value_render_option='UNFORMATTED_VALUE')
+        return iso_date(rows[0][1]) if rows and len(rows[0]) > 1 and rows[0][0] == 'cloud_last_attempt' else ''
+
+    def mark_cloud_attempt(self, date):
+        self.meta.update(range_name='A7:B7', values=[['cloud_last_attempt', date]], value_input_option='RAW')
+
 
 def configured_sheet() -> str:
     config = Path("config/destination.json")
