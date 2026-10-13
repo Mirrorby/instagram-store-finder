@@ -63,8 +63,14 @@ def check_site(url: str, fetcher) -> dict:
         lowered = page.text.lower()
         title_match = re.search(r"<title[^>]*>(.*?)</title>", lowered, re.S)
         title = html.unescape(re.sub(r"<[^>]+>", " ", title_match.group(1))) if title_match else ""
-        visible = html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<(script|style)\b.*?</\1>", " ", lowered, flags=re.S)))
-        if any(marker in lowered for marker in ["cf-chl-", "g-recaptcha", "verify you are human", "captcha-container"]):
+        content = re.sub(r"<!--.*?-->|<(script|style|template)\b[^>]*>.*?</\1>", " ", lowered, flags=re.S)
+        visible = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", content)).split())
+        # A CAPTCHA integration in a contact/login form does not block the shop.
+        # Require a challenge page title or a short challenge document instead.
+        challenge_title = re.search(r"just a moment|attention required|security verification|verify you are human|checking your browser", title)
+        challenge_body = any(marker in visible for marker in ["verify you are human", "checking your browser", "performing security verification"])
+        challenge_markup = any(marker in content for marker in ["cf-chl-", "captcha-container"])
+        if challenge_title or (len(visible) < 600 and (challenge_body or challenge_markup)):
             result["status"] = "restricted"
         elif re.search(r"\b404\b|site not found|website not found|domain for sale|account suspended|сайт не найден", title):
             result["status"] = "empty"
