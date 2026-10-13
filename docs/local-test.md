@@ -21,6 +21,16 @@ python -m store_finder local-test --chrome --accounts ACCOUNT1 ACCOUNT2 ACCOUNT3
 Cookies не копируются в файл и не включаются в отчёт. Google Sheets не изменяется.
 После теста выключите разрешение удалённой отладки.
 
+Если Chrome показывает **Server running at: 127.0.0.1:9222**, используйте
+адрес напрямую, без поиска служебного файла:
+
+```sh
+python -m store_finder local-test --chrome --cdp-endpoint http://127.0.0.1:9222 --accounts ACCOUNT1 ACCOUNT2 ACCOUNT3
+```
+
+В параметре `--cdp-endpoint` разрешены только локальные адреса. С ним файл
+`DevToolsActivePort` и сохранённый файл сессии не требуются.
+
 Используется локальное подключение CDP. Адрес берётся только из служебного
 `DevToolsActivePort` в каталоге Chrome, подключение ограничено `127.0.0.1`.
 Если у Chrome другой каталог, укажите его через `--chrome-user-data-dir`.

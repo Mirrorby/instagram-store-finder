@@ -40,19 +40,36 @@ def chrome_endpoint(user_data_dir=None):
         raise ValueError('Откройте обычный Chrome 144+, перейдите в chrome://inspect/#remote-debugging и включите разрешение удалённой отладки. Если используется другой каталог Chrome, укажите --chrome-user-data-dir.') from exc
 
 
+def local_cdp_endpoint(value):
+    try:
+        parsed = urlparse(value)
+        if (parsed.scheme not in {'http', 'ws'} or parsed.hostname not in {'127.0.0.1', 'localhost', '::1'}
+                or parsed.username or parsed.password or not parsed.port or parsed.query or parsed.fragment):
+            raise ValueError('Invalid local endpoint')
+        if parsed.scheme == 'http' and parsed.path not in {'', '/'}:
+            raise ValueError('Invalid HTTP endpoint path')
+        if parsed.scheme == 'ws' and not re.fullmatch(r'/devtools/browser/[A-Za-z0-9_-]+', parsed.path):
+            raise ValueError('Invalid WebSocket endpoint path')
+        host = '[::1]' if parsed.hostname == '::1' else '127.0.0.1'
+        return parsed._replace(netloc=f'{host}:{parsed.port}').geturl()
+    except (ValueError, TypeError) as exc:
+        raise ValueError('Укажите локальный адрес Chrome, например --cdp-endpoint http://127.0.0.1:9222') from exc
+
+
 class BrowserProfiles:
-    def __init__(self, headless=True, storage_state=None, attach_chrome=False, chrome_user_data_dir=None):
+    def __init__(self, headless=True, storage_state=None, attach_chrome=False, chrome_user_data_dir=None, cdp_endpoint=None):
         self.headless = headless
         self.storage_state = storage_state
-        self.attach_chrome = attach_chrome
+        self.attach_chrome = bool(attach_chrome or cdp_endpoint)
         self.chrome_user_data_dir = chrome_user_data_dir
+        self.cdp_endpoint = local_cdp_endpoint(cdp_endpoint) if cdp_endpoint else None
 
     def __enter__(self):
         from playwright.sync_api import sync_playwright, Error
         self.runtime = sync_playwright().start()
         if self.attach_chrome:
             try:
-                endpoint = chrome_endpoint(self.chrome_user_data_dir)
+                endpoint = self.cdp_endpoint or chrome_endpoint(self.chrome_user_data_dir)
                 print('Подключаюсь к открытому Chrome. Если браузер покажет запрос, разрешите подключение.', flush=True)
                 self.browser = self.runtime.chromium.connect_over_cdp(endpoint, timeout=60000)
                 if not self.browser.contexts:

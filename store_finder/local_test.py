@@ -59,7 +59,8 @@ def usernames(values):
     return result
 
 
-def local_test(accounts, session, output, headless=False, attach_chrome=False, chrome_user_data_dir=None):
+def local_test(accounts, session, output, headless=False, attach_chrome=False, chrome_user_data_dir=None, cdp_endpoint=None):
+    attach_chrome = bool(attach_chrome or cdp_endpoint)
     names = usernames(accounts)
     if not attach_chrome and not session.is_file():
         print("Сначала выполните: python -m store_finder login")
@@ -71,7 +72,7 @@ def local_test(accounts, session, output, headless=False, attach_chrome=False, c
     fetcher, config = Fetcher(), settings()
     tested = []
     with BrowserProfiles(headless=headless, storage_state=None if attach_chrome else session,
-                         attach_chrome=attach_chrome, chrome_user_data_dir=chrome_user_data_dir) as browser:
+                         attach_chrome=attach_chrome, chrome_user_data_dir=chrome_user_data_dir, cdp_endpoint=cdp_endpoint) as browser:
         for name in names:
             lead = leads[name]
             print(f"Проверяю @{name}…", flush=True)

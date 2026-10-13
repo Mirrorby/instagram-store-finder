@@ -7,10 +7,18 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 from store_finder.local_test import local_test, save_session, usernames
-from store_finder.browser import chrome_endpoint, BrowserProfiles
+from store_finder.browser import chrome_endpoint, local_cdp_endpoint, BrowserProfiles
 
 
 class LocalTestTests(unittest.TestCase):
+    def test_direct_endpoint_uses_loopback_without_profile_discovery(self):
+        self.assertEqual(local_cdp_endpoint('http://localhost:9222'), 'http://127.0.0.1:9222')
+        self.assertEqual(local_cdp_endpoint('http://127.0.0.1:9222'), 'http://127.0.0.1:9222')
+        profile = BrowserProfiles(cdp_endpoint='http://127.0.0.1:9222')
+        self.assertTrue(profile.attach_chrome)
+        for endpoint in ['http://other.test:9222', 'http://127.0.0.1:0', 'http://user:pass@127.0.0.1:9222', 'http://127.0.0.1:9222/other', 'ws://127.0.0.1:9222/other']:
+            with self.assertRaises(ValueError): local_cdp_endpoint(endpoint)
+
     def test_existing_chrome_endpoint_is_loopback_and_validated(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'DevToolsActivePort'

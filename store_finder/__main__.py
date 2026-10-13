@@ -29,6 +29,7 @@ def main():
     local.add_argument("--headless", action="store_true")
     local.add_argument("--chrome", action="store_true", help="Use the open, authorised Chrome session; no new login")
     local.add_argument("--chrome-user-data-dir", type=Path)
+    local.add_argument("--cdp-endpoint", help="Local Chrome server address, e.g. http://127.0.0.1:9222")
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
@@ -39,7 +40,7 @@ def main():
     if args.command == "local-test":
         from .local_test import local_test
         try:
-            return local_test(args.accounts, args.session, args.output, args.headless, args.chrome, args.chrome_user_data_dir)
+            return local_test(args.accounts, args.session, args.output, args.headless, args.chrome, args.chrome_user_data_dir, args.cdp_endpoint)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
