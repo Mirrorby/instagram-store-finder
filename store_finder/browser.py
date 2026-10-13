@@ -56,6 +56,13 @@ def local_cdp_endpoint(value):
         raise ValueError('Укажите локальный адрес Chrome, например --cdp-endpoint http://127.0.0.1:9222') from exc
 
 
+def connection_error_detail(error):
+    # Only used for a local CDP connection; omit its temporary debugger ID.
+    detail = str(error).split('Call log:', 1)[0].strip()
+    detail = re.sub(r'/devtools/browser/[A-Za-z0-9_-]+', '/devtools/browser/[скрыто]', detail)
+    return detail[:1000] or type(error).__name__
+
+
 class BrowserProfiles:
     def __init__(self, headless=True, storage_state=None, attach_chrome=False, chrome_user_data_dir=None, cdp_endpoint=None):
         self.headless = headless
@@ -77,7 +84,8 @@ class BrowserProfiles:
                 self.context = self.browser.contexts[0]
             except Error as exc:
                 self.runtime.stop()
-                raise ValueError('Chrome не принял подключение. Убедитесь, что обычный Chrome открыт, удалённая отладка включена и запрос подключения разрешён. Повторите команду только после проверки этих настроек.') from exc
+                raise ValueError('Не удалось подключиться к Chrome.\nПричина: ' + connection_error_detail(exc) +
+                    '\nСкопируйте строку «Причина» для диагностики. Если Chrome показал запрос подключения, разрешите его.') from exc
             except Exception:
                 self.runtime.stop()
                 raise

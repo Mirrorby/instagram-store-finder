@@ -7,10 +7,16 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 from store_finder.local_test import local_test, save_session, usernames
-from store_finder.browser import chrome_endpoint, local_cdp_endpoint, BrowserProfiles
+from store_finder.browser import chrome_endpoint, local_cdp_endpoint, connection_error_detail, BrowserProfiles
 
 
 class LocalTestTests(unittest.TestCase):
+    def test_connection_error_preserves_cause_without_debugger_id(self):
+        detail = connection_error_detail(Exception('Unexpected status 404 at ws://127.0.0.1:9222/devtools/browser/private-id\nCall log: verbose'))
+        self.assertIn('Unexpected status 404', detail)
+        self.assertNotIn('private-id', detail)
+        self.assertNotIn('verbose', detail)
+
     def test_direct_endpoint_uses_loopback_without_profile_discovery(self):
         self.assertEqual(local_cdp_endpoint('http://localhost:9222'), 'http://127.0.0.1:9222')
         self.assertEqual(local_cdp_endpoint('http://127.0.0.1:9222'), 'http://127.0.0.1:9222')
