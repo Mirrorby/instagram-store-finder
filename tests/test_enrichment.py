@@ -37,7 +37,7 @@ class EnrichmentTests(unittest.TestCase):
     def test_json_owner_latest_date_and_links(self):
         shop = lead()
         current = datetime.now(timezone.utc)
-        posts = [{'ownerUsername': 'example_shop', 'timestamp': (current-timedelta(days=n)).isoformat(), 'url': 'https://www.instagram.com/p/test/'} for n in [800, 20, 5, 1]]
+        posts = [{'ownerUsername': 'example_shop', 'timestamp': (current-timedelta(days=n)).isoformat(), 'url': f'https://www.instagram.com/p/test{n}/'} for n in [800, 20, 5, 1]]
         posts.append({'ownerUsername': 'another', 'timestamp': current.isoformat()})
         record = {'username': 'example_shop', 'follower_count': 4321, 'external_url': 'https://shop.example/', 'biography': 'Jewelry shop. DM to order.', 'latestPosts': posts}
         self.assertTrue(apply_payload(shop, {'data': {'user': record}}))
@@ -118,3 +118,15 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(stats['checked'], 1)
         self.assertEqual(stats['processed'], 2)
         self.assertEqual(stats['skipped_after_restriction'], 1)
+
+    def test_post_rate_limit_stops_remaining_enrichment_queue(self):
+        from store_finder.enrichment import enrich
+        state = {'leads': {'example_shop': lead(), 'second': {**lead(), 'username': 'second'}}}
+        class Browser:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def fetch(self, shop): shop.update(profile_status='verified', instagram_rate_limited=True)
+        with patch('store_finder.enrichment.BrowserProfiles', Browser):
+            stats = enrich(state, None, budget=2)
+        self.assertEqual(stats['checked'], 1)
+        self.assertTrue(stats['stopped_on_instagram_restriction'])

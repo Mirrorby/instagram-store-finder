@@ -9,7 +9,8 @@ from .profiles import apply_indexed_data, fetch_profile, parse_indexed_post
 from .qualification import qualify, settings
 from .scoring import score
 from .search import SearchUnavailable
-from .websites import check_websites
+from .websites import check_websites, retry_restricted_sites
+from .site_browser import BrowserSiteFetcher
 
 
 def candidates(state: dict, config: dict, budget: int) -> list[dict]:
@@ -81,9 +82,14 @@ def enrich(state: dict, client, budget: int | None = None, max_seconds=420) -> d
             denied += int(lead.get("profile_status") == "restricted")
         # Known bio links can still be checked when Instagram restricts profile access.
         check_websites(lead, fetcher)
+        if browser and lead.get('website_status') == 'restricted':
+            retry_restricted_sites(lead, BrowserSiteFetcher(browser.browser))
         stats["processed"] += 1
         stats["checked"] += int(attempted)
         stats["skipped_after_restriction"] += int(not attempted and denied >= 2)
+        if lead.get('instagram_rate_limited') or lead.get('post_access_restricted'):
+            stats['stopped_on_instagram_restriction'] = True
+            break
         time.sleep(1)
     stack.close()
     for lead in state["leads"].values():

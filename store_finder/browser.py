@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from .models import now
 from .profiles import apply_profile_record, parse_profile_html
+from .post_dates import apply_media_payload, parse_post_document, post_url
 
 
 def apply_payload(lead, payload):
@@ -20,7 +21,22 @@ def apply_payload(lead, payload):
             stack.extend(v for v in item.values() if isinstance(v, (dict, list)))
         elif isinstance(item, list):
             stack.extend(item)
+    apply_media_payload(lead, payload, profile_scope=True)
     return applied
+
+
+def decode_payloads(body):
+    if isinstance(body, bytes): body = body.decode('utf-8', errors='replace')
+    body = body.strip().removeprefix('for (;;);').lstrip()
+    decoder, result = json.JSONDecoder(), []
+    while body and len(result) < 20:
+        try:
+            value, end = decoder.raw_decode(body)
+        except ValueError:
+            break
+        if isinstance(value, (dict, list)): result.append(value)
+        body = body[end:].lstrip()
+    return result
 
 
 def chrome_endpoint(user_data_dir=None):
@@ -135,6 +151,8 @@ class BrowserProfiles:
 
     def fetch(self, lead):
         from playwright.sync_api import Error
+        lead.pop('instagram_rate_limited', None)
+        lead.pop('post_access_restricted', None)
         page = self.context.new_page()
         lead["enrichment_checked_at"] = now()
         payloads, statuses = [], []
@@ -146,12 +164,15 @@ class BrowserProfiles:
             if "/api/" not in parsed.path and "/graphql/" not in parsed.path:
                 return
             statuses.append(response.status)
-            if len(payloads) >= 20 or response.status != 200:
+            if response.status == 429:
+                lead['instagram_rate_limited'] = True
+                self.denied = True
+            if len(payloads) >= 40 or response.status != 200:
                 return
             try:
                 body = response.body()
                 if len(body) <= 3_000_000:
-                    payloads.append(json.loads(body))
+                    payloads.extend(decode_payloads(body)[:40-len(payloads)])
             except (Error, ValueError):
                 pass
 
@@ -182,11 +203,14 @@ class BrowserProfiles:
                 statuses.append(result["status"])
                 if result["status"] == 200:
                     try:
-                        applied |= apply_payload(lead, json.loads(result["body"]))
+                        for payload in decode_payloads(result['body']):
+                            applied |= apply_payload(lead, payload)
                     except ValueError:
                         pass
                 if result["status"] in {401, 403, 429}:
                     self.denied = True
+                if result['status'] == 429:
+                    lead['instagram_rate_limited'] = True
             if applied:
                 lead["profile_data_source"] = "chromium"
             elif restricted:
@@ -195,7 +219,74 @@ class BrowserProfiles:
                 lead["profile_status"] = "unknown"
             lead["browser_status"] = "verified" if applied else "partial" if html_found else "restricted" if restricted else "unknown"
             lead["browser_api_status"] = next((code for code in reversed(statuses) if code), None)
+            if not restricted and not lead.get('is_private') and not lead.get('instagram_rate_limited'):
+                self.collect_posts(lead, page, payloads, capture)
         except Error:
             lead["browser_status"] = "error"
         finally:
             page.close()
+
+    def collect_posts(self, lead, profile_page, payloads, capture):
+        from playwright.sync_api import Error
+        debug = {'grid_links': 0, 'pages_opened': 0, 'dated_pages': 0}
+        lead['posts_debug'] = debug
+        if lead.get('last_post_at') and lead.get('activity_complete'):
+            debug['method'] = 'profile_payload'
+            return
+        try:
+            selector = 'main a[href*="/p/"], main a[href*="/reel/"], [role="main"] a[href*="/p/"], [role="main"] a[href*="/reel/"]'
+            locator = profile_page.locator(selector)
+            try:
+                locator.first.wait_for(state='attached', timeout=5000)
+            except Error:
+                profile_page.evaluate('window.scrollBy(0, 500)')
+                profile_page.wait_for_timeout(1500)
+            for payload in payloads:
+                apply_media_payload(lead, payload, profile_scope=True)
+            payloads.clear()
+            if lead.get('last_post_at') and lead.get('activity_complete'):
+                debug['method'] = 'timeline_payload'
+                return
+            hrefs = locator.evaluate_all('(links) => links.slice(0, 30).map(link => link.href)')
+            urls = list(dict.fromkeys(filter(None, (post_url(href, lead['username']) for href in hrefs))))[:6]
+            debug['grid_links'] = len(urls)
+            if self.attach_chrome and urls:
+                print(f'  Читаю даты публикаций: до {len(urls)} страниц…', flush=True)
+            dated_urls = set()
+            for url in urls:
+                if lead.get('instagram_rate_limited'):
+                    debug['stop'] = 'rate_limited'; break
+                page = self.context.new_page()
+                page.on('response', capture)
+                debug['pages_opened'] += 1
+                try:
+                    response = page.goto(url, wait_until='commit', timeout=20000)
+                    if (response and response.status in {401, 403, 429}) or any(part in page.url for part in ['/accounts/login', '/challenge/']):
+                        lead['post_access_restricted'] = True
+                        debug['stop'] = 'restricted'; break
+                    try:
+                        page.locator('article time[datetime], main time[datetime], [role="main"] time[datetime]').first.wait_for(state='attached', timeout=5000)
+                    except Error:
+                        page.wait_for_timeout(500)
+                    for payload in payloads:
+                        apply_media_payload(lead, payload)
+                    payloads.clear()
+                    authors = page.locator('article header a[href], main header a[href], [role="main"] header a[href]').evaluate_all('(links) => links.slice(0, 20).map(link => link.href)')
+                    times = page.locator('article time[datetime], main time[datetime], [role="main"] time[datetime]').evaluate_all('(times) => times.slice(0, 20).map(time => ({date: time.getAttribute("datetime"), href: time.closest("a[href]")?.href || ""}))')
+                    parse_post_document(lead, url, page.content(), authors, times)
+                    code = url.rstrip('/').rsplit('/', 1)[-1]
+                    if any(sample['url'].rstrip('/').rsplit('/', 1)[-1] == code for sample in lead.get('post_samples', [])):
+                        dated_urls.add(url)
+                        debug['dated_pages'] += 1
+                    page.wait_for_timeout(500)
+                except Error:
+                    debug['page_errors'] = debug.get('page_errors', 0) + 1
+                finally:
+                    page.close()
+            # Six grid entries cover three possible pinned posts plus regular posts.
+            # Any failed/foreign entry leaves old-post inactivity unconfirmed.
+            if len(urls) >= 4 and len(dated_urls) == len(urls) and not debug.get('stop'):
+                lead['activity_complete'] = True
+            debug['method'] = 'post_pages' if urls else 'no_grid_links'
+        except Error:
+            debug['method'] = 'grid_unavailable'

@@ -36,7 +36,7 @@ LABELS = {
     "profile_status": {"verified": "Данные получены", "partial": "Часть данных", "restricted": "Доступ ограничен", "private": "Закрыт", "unavailable": "Недоступен", "unknown": "Не проверен"},
     "qualification": {"suitable": "Подходит", "review": "Нужно проверить", "rejected": "Не подходит"},
     "browser_status": {"verified": "Данные получены", "partial": "Часть данных", "restricted": "Доступ ограничен", "error": "Ошибка загрузки", "unknown": "Нет данных"}}
-SOURCES = {"profile_html": "Страница Instagram", "chromium": "Chromium / ответы страницы", "search_index": "Поисковый индекс", "indexed_post_page": "Индексированная публикация", "apify": "Apify"}
+SOURCES = {"profile_html": "Страница Instagram", "chromium": "Chromium / ответы страницы", "chromium_post_page": "Дата на странице публикации", "search_index": "Поисковый индекс", "indexed_post_page": "Индексированная публикация", "apify": "Apify"}
 
 
 def detail_value(lead, key):

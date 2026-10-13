@@ -83,6 +83,9 @@ def apply_profile_record(lead: dict, record: dict, source: str) -> bool:
     if record.get("error"):
         lead["profile_status"] = "unavailable"
         return False
+    profile_id = record.get('id', record.get('pk'))
+    if profile_id is not None and str(profile_id).isdecimal():
+        lead['profile_id'] = str(profile_id)
     followers = record.get("followersCount", record.get("follower_count", (record.get("edge_followed_by") or {}).get("count")))
     if isinstance(followers, int) and not isinstance(followers, bool) and followers >= 0:
         lead["followers"] = followers

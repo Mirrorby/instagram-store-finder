@@ -11,7 +11,8 @@ from .network import Fetcher
 from .qualification import qualify, settings
 from .scoring import score
 from .sheets import LABELS
-from .websites import check_websites
+from .websites import check_websites, retry_restricted_sites
+from .site_browser import BrowserSiteFetcher
 
 
 def save_session(context, path):
@@ -78,6 +79,9 @@ def local_test(accounts, session, output, headless=False, attach_chrome=False, c
             print(f"Проверяю @{name}…", flush=True)
             browser.fetch(lead)
             check_websites(lead, fetcher)
+            if lead.get('website_status') == 'restricted':
+                print('  Перепроверяю сайт в отдельной вкладке браузера…', flush=True)
+                retry_restricted_sites(lead, BrowserSiteFetcher(browser.browser))
             score(lead)
             qualify(lead, config)
             tested.append(lead)
@@ -85,11 +89,13 @@ def local_test(accounts, session, output, headless=False, attach_chrome=False, c
             rounded = " (округлено)" if lead.get("followers_approximate") else ""
             print(f"  Подписчики: {followers if followers is not None else 'не получены'}{rounded}")
             print(f"  Последний пост: {lead.get('last_post_at') or 'дата не получена'}")
+            if lead.get('posts_debug'):
+                print('  Проверка публикаций: ' + json.dumps(lead['posts_debug'], ensure_ascii=False))
             links = ', '.join(lead.get('website_urls', []))
             print("  Ссылки: " + (links or ('не указаны' if lead.get('links_complete') else 'не получены')))
             print("  Сайт: " + LABELS['website_status'][lead.get('website_status', 'unknown')])
             print("  Chromium: " + LABELS['browser_status'].get(lead.get('browser_status'), 'Нет данных'))
-            if lead.get("profile_status") == "restricted" or lead.get("browser_api_status") == 429:
+            if lead.get("profile_status") == "restricted" or lead.get("browser_api_status") == 429 or lead.get('instagram_rate_limited') or lead.get('post_access_restricted'):
                 print("Instagram ограничил доступ. Тест остановлен; повторных запросов к оставшимся профилям не будет.")
                 break
             time.sleep(3)

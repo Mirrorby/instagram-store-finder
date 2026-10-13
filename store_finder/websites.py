@@ -80,6 +80,11 @@ def check_websites(lead: dict, fetcher):
     checks = [check_site(url, fetcher) for url in links]
     lead["website_checks"] = checks
     lead["website_checked_at"] = now() if checks else lead.get("website_checked_at")
+    summarize_checks(lead)
+
+
+def summarize_checks(lead):
+    checks = lead.get('website_checks', [])
     if not checks:
         lead["website_status"] = "missing" if lead.get("links_complete") else "unknown"
         return
@@ -89,3 +94,18 @@ def check_websites(lead: dict, fetcher):
     selected = next(c for c in checks if c["status"] == status)
     lead["website_final_url"] = selected["final_url"]
     lead["website_http_status"] = selected["http_status"]
+
+
+def retry_restricted_sites(lead, browser_fetcher):
+    for index, previous in enumerate(lead.get('website_checks', [])):
+        if previous['status'] != 'restricted':
+            continue
+        current = check_site(previous['url'], browser_fetcher)
+        current['source'] = 'isolated_browser'
+        current['previous_http_status'] = previous.get('http_status')
+        if current['status'] in {'working', 'working_hub', 'broken', 'empty', 'tls_error'}:
+            lead['website_checks'][index] = current
+        else:
+            previous['browser_check_status'] = current['status']
+        lead['website_checked_at'] = current['checked_at']
+    summarize_checks(lead)
