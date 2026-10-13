@@ -2,6 +2,7 @@ import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from store_finder.browser import apply_payload
 from store_finder.network import Page, public_url
 from store_finder.profiles import parse_profile_html, apply_profile_record, apply_indexed_data
@@ -103,3 +104,17 @@ class EnrichmentTests(unittest.TestCase):
         shop['evidence'][0]['snippet'] = 'Example (@example_shop) accessories.453 Followers - Other (@other)'
         apply_indexed_data(shop)
         self.assertIsNone(shop['followers'])
+
+    def test_restricted_profiles_are_not_counted_as_checked(self):
+        from store_finder.enrichment import enrich
+        state = {'leads': {'example_shop': lead(), 'second': {**lead(), 'username': 'second'}}}
+        class Browser:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def fetch(self, shop): shop['profile_status'] = 'restricted'
+        def denied(shop, fetcher): shop['profile_status'] = 'restricted'
+        with patch('store_finder.enrichment.BrowserProfiles', Browser), patch('store_finder.enrichment.fetch_profile', denied), patch('store_finder.enrichment.time.sleep'):
+            stats = enrich(state, None, budget=2)
+        self.assertEqual(stats['checked'], 1)
+        self.assertEqual(stats['processed'], 2)
+        self.assertEqual(stats['skipped_after_restriction'], 1)

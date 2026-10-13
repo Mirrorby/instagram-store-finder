@@ -219,8 +219,13 @@ class SheetsStore:
             table = next((t for t in tables if t["name"] == "InstagramStores"), None)
             if table:
                 end = max(table["range"].get("endRowIndex", 0), len(self.rows) + 1 + len(additions))
-                self.book.batch_update({"requests": [{"updateTable": {"table": {"tableId": table["tableId"],
-                    "range": {**table["range"], "endRowIndex": end}}, "fields": "range"}}]})
+                requests = [{"updateTable": {"table": {"tableId": table["tableId"],
+                    "range": {**table["range"], "endRowIndex": end}}, "fields": "range"}}]
+                for view in properties.get("filterViews", []):
+                    if view.get("title") in {"Подходят для предложения", "Нерабочие сайты — повод для предложения"}:
+                        requests.append({"updateFilterView": {"filter": {"filterViewId": view["filterViewId"],
+                            "range": {**view["range"], "endRowIndex": end}}, "fields": "range"}})
+                self.book.batch_update({"requests": requests})
         end = len(self.rows) + 1 + len(additions)
         if end >= 2:
             for columns in ["M2:N", "W2:W", "AC2:AC", "AS2:AS"]:

@@ -63,7 +63,7 @@ def enrich(state: dict, client, budget: int | None = None, max_seconds=420) -> d
     fetcher = Fetcher()
     for lead in state["leads"].values():
         apply_indexed_data(lead)
-    stats = {"selected": len(selected), "checked": 0, "profiles_with_followers": 0}
+    stats = {"selected": len(selected), "checked": 0, "processed": 0, "skipped_after_restriction": 0, "profiles_with_followers": 0}
     stack = ExitStack()
     try:
         browser = stack.enter_context(BrowserProfiles()) if selected else None
@@ -76,15 +76,20 @@ def enrich(state: dict, client, budget: int | None = None, max_seconds=420) -> d
         if time.monotonic() - started > max_seconds:
             stats["time_budget_exhausted"] = True
             break
+        attempted = False
         if browser and denied < 2:
+            attempted = True
             browser.fetch(lead)
             denied += int(lead.get("profile_status") == "restricted")
         if lead.get("profile_status") != "verified" and denied < 2:
+            attempted = True
             fetch_profile(lead, fetcher)
             denied += int(lead.get("profile_status") == "restricted")
         # Known bio links can still be checked when Instagram restricts profile access.
         check_websites(lead, fetcher)
-        stats["checked"] += 1
+        stats["processed"] += 1
+        stats["checked"] += int(attempted)
+        stats["skipped_after_restriction"] += int(not attempted and denied >= 2)
         time.sleep(1)
     stack.close()
     for lead in state["leads"].values():
