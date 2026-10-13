@@ -7,10 +7,30 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 from store_finder.local_test import local_test, save_session, usernames
-from store_finder.browser import chrome_endpoint, local_cdp_endpoint, connection_error_detail, BrowserProfiles
+from store_finder.browser import chrome_endpoint, local_cdp_endpoint, connection_error_detail, connect_existing_chrome, BrowserProfiles
 
 
 class LocalTestTests(unittest.TestCase):
+    def test_native_chrome_websocket_route_and_discovery_404_fallback(self):
+        from unittest.mock import Mock, call
+        from playwright.sync_api import Error
+        self.assertEqual(local_cdp_endpoint('ws://127.0.0.1:9222/devtools/browser'), 'ws://127.0.0.1:9222/devtools/browser')
+        browser_type = Mock()
+        connected = object()
+        browser_type.connect_over_cdp.side_effect = [Error('Unexpected status 404 when connecting to http://127.0.0.1:9222/json/version/'), connected]
+        with patch('store_finder.browser.print'):
+            self.assertIs(connect_existing_chrome(browser_type, 'http://127.0.0.1:9222'), connected)
+        self.assertEqual(browser_type.connect_over_cdp.call_args_list, [call('http://127.0.0.1:9222', timeout=60000), call('ws://127.0.0.1:9222/devtools/browser', timeout=60000)])
+
+    def test_chrome_denial_and_timeout_do_not_retry(self):
+        from unittest.mock import Mock
+        from playwright.sync_api import Error
+        for message in ['Unexpected status 403', 'Timeout 60000ms exceeded']:
+            browser_type = Mock()
+            browser_type.connect_over_cdp.side_effect = Error(message)
+            with self.assertRaises(Error): connect_existing_chrome(browser_type, 'http://127.0.0.1:9222')
+            self.assertEqual(browser_type.connect_over_cdp.call_count, 1)
+
     def test_connection_error_preserves_cause_without_debugger_id(self):
         detail = connection_error_detail(Exception('Unexpected status 404 at ws://127.0.0.1:9222/devtools/browser/private-id\nCall log: verbose'))
         self.assertIn('Unexpected status 404', detail)

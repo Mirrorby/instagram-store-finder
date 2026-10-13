@@ -33,7 +33,7 @@ def chrome_endpoint(user_data_dir=None):
         lines = path.read_text().strip().splitlines()
         port = int(lines[0])
         route = lines[1].strip()
-        if not 1 <= port <= 65535 or not re.fullmatch(r'/devtools/browser/[A-Za-z0-9_-]+', route):
+        if not 1 <= port <= 65535 or not re.fullmatch(r'/devtools/browser(?:/[A-Za-z0-9_-]+)?/?', route):
             raise ValueError('Invalid local endpoint')
         return f'ws://127.0.0.1:{port}{route}'
     except (OSError, ValueError, IndexError) as exc:
@@ -48,7 +48,7 @@ def local_cdp_endpoint(value):
             raise ValueError('Invalid local endpoint')
         if parsed.scheme == 'http' and parsed.path not in {'', '/'}:
             raise ValueError('Invalid HTTP endpoint path')
-        if parsed.scheme == 'ws' and not re.fullmatch(r'/devtools/browser/[A-Za-z0-9_-]+', parsed.path):
+        if parsed.scheme == 'ws' and not re.fullmatch(r'/devtools/browser(?:/[A-Za-z0-9_-]+)?/?', parsed.path):
             raise ValueError('Invalid WebSocket endpoint path')
         host = '[::1]' if parsed.hostname == '::1' else '127.0.0.1'
         return parsed._replace(netloc=f'{host}:{parsed.port}').geturl()
@@ -61,6 +61,21 @@ def connection_error_detail(error):
     detail = str(error).split('Call log:', 1)[0].strip()
     detail = re.sub(r'/devtools/browser/[A-Za-z0-9_-]+', '/devtools/browser/[скрыто]', detail)
     return detail[:1000] or type(error).__name__
+
+
+def connect_existing_chrome(browser_type, endpoint):
+    from playwright.sync_api import Error
+    try:
+        return browser_type.connect_over_cdp(endpoint, timeout=60000)
+    except Error as exc:
+        parsed = urlparse(endpoint)
+        # Chrome's permission-based UI exposes WebSocket CDP without HTTP discovery.
+        # Try that documented route once, only on a discovery 404; no retries on denial.
+        if parsed.scheme != 'http' or 'Unexpected status 404' not in str(exc):
+            raise
+        websocket = local_cdp_endpoint(parsed._replace(scheme='ws', path='/devtools/browser').geturl())
+        print('HTTP discovery недоступен. Подключаюсь через WebSocket; подтвердите запрос Chrome.', flush=True)
+        return browser_type.connect_over_cdp(websocket, timeout=60000)
 
 
 class BrowserProfiles:
@@ -78,7 +93,7 @@ class BrowserProfiles:
             try:
                 endpoint = self.cdp_endpoint or chrome_endpoint(self.chrome_user_data_dir)
                 print('Подключаюсь к открытому Chrome. Если браузер покажет запрос, разрешите подключение.', flush=True)
-                self.browser = self.runtime.chromium.connect_over_cdp(endpoint, timeout=60000)
+                self.browser = connect_existing_chrome(self.runtime.chromium, endpoint)
                 if not self.browser.contexts:
                     raise ValueError('В подключённом Chrome нет доступного контекста')
                 self.context = self.browser.contexts[0]
