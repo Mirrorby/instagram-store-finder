@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 import requests
 from store_finder.apify_profiles import ApifyError, ApifyProfiles
-from store_finder.cloud import cloud_enrich, queue
+from store_finder.cloud import attempted_today, cloud_enrich, queue
 from store_finder.models import merge_result
 from store_finder.observations import fresh_probe, merge_enrichment
 from store_finder.profiles import apply_profile_record
@@ -42,6 +42,17 @@ def response(data, status=200):
 
 
 class CloudTests(unittest.TestCase):
+    def test_evening_manual_test_allows_next_morning_daily_run(self):
+        yesterday_evening = '2026-10-13T15:51:00+00:00'
+        next_morning = datetime(2026, 10, 14, 8, 30, tzinfo=timezone.utc)
+        self.assertFalse(attempted_today(yesterday_evening, next_morning))
+        self.assertTrue(attempted_today('2026-10-14T08:30:00+00:00', next_morning + timedelta(hours=4)))
+
+    def test_daily_guard_uses_minsk_date_at_midnight(self):
+        after_midnight = datetime(2026, 10, 13, 21, 5, tzinfo=timezone.utc)
+        self.assertFalse(attempted_today('2026-10-13T20:59:00+00:00', after_midnight))
+        self.assertTrue(attempted_today('2026-10-13T21:01:00+00:00', after_midnight))
+
     def test_provider_starts_one_capped_run_and_reads_its_dataset(self):
         provider = ApifyProfiles('SECRET')
         provider.session = Mock()

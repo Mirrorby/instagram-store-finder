@@ -1,6 +1,6 @@
 """Cloud profile queue, with a daily billing guard and private Sheet persistence."""
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import time
@@ -15,6 +15,16 @@ from .qualification import settings
 from .sheets import SheetsStore, configured_sheet
 from .site_browser import BrowserSiteFetcher
 from .websites import check_websites, retry_restricted_sites
+
+MINSK = timezone(timedelta(hours=3))
+
+
+def attempted_today(last, current=None):
+    if not last: return False
+    checked = datetime.fromisoformat(last)
+    if checked.tzinfo is None: checked = checked.replace(tzinfo=timezone.utc)
+    current = current or datetime.now(timezone.utc)
+    return checked.astimezone(MINSK).date() >= current.astimezone(MINSK).date()
 
 
 def queue(state, limit):
@@ -55,7 +65,7 @@ def cloud_enrich(limit=20, output=Path('output/cloud-summary.json'), force=False
     summary = {'selected': 0, 'returned': 0, 'updated': 0, 'skipped': 0, 'missing_results': 0,
                'foreign_results': 0, 'provider': 'apify', 'sheets_written': False}
     last = store.cloud_last_attempt()
-    if last and not force and (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() < 20 * 3600:
+    if not force and attempted_today(last):
         summary['status'] = 'daily_run_already_attempted'
         save_summary(output, summary)
         return 0
