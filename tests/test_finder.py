@@ -118,6 +118,17 @@ class FinderTests(unittest.TestCase):
         self.assertEqual(restored["niche_hints"], ["jewelry"])
         self.assertEqual(restored["query_languages"], ["en"])
 
+    def test_sheets_rich_link_title_uses_stable_account(self):
+        leads = {}
+        merge_result(leads, row(), QUERY, "2026-10-12T18:00:00+00:00")
+        values = sheet_row(leads["example_shop"])
+        values[1] = "Example Shop (@example_shop) • Instagram photos and videos"
+        restored = lead_from_row(values)
+        self.assertEqual(restored["profile_url"], "https://www.instagram.com/example_shop/")
+        values[1] = "https://www.instagram.com/different_shop/"
+        with self.assertRaises(ValueError):
+            lead_from_row(values)
+
     def test_concatenated_search_cards_are_not_other_shop_evidence(self):
         leads = {}
         combined = row(body='12 Followers, 2 Posts - Personal (@example_shop): "My life".100 Followers, 3 Posts - Other (@other): "Jewelry shop. DM to order."')

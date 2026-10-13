@@ -61,12 +61,18 @@ def sheet_row(lead: dict) -> list:
 
 def lead_from_row(values: list) -> dict:
     row = values + [""] * (20 - len(values))
-    username = profile_username(row[1])
-    if not username or username != str(row[0]).strip().lstrip("@").lower():
+    account = str(row[0]).strip().lstrip("@").lower()
+    canonical_url = f"https://www.instagram.com/{account}/"
+    username = profile_username(canonical_url)
+    linked_account = profile_username(str(row[1]))
+    # Sheets may replace a URL with a rich-link display title. The username in
+    # column A remains the stable identity; a mismatched actual URL is an error.
+    if (not username or (linked_account and linked_account != username)
+            or (not linked_account and str(row[1]).startswith(("https://", "http://")))):
         raise ValueError("Account and profile URL in the table do not match")
     reverse_niches = {value: key for key, value in NICHES.items()}
     reverse_languages = {value: key for key, value in LANGUAGES.items()}
-    return {"username": username, "profile_url": row[1], "title": row[2],
+    return {"username": username, "profile_url": canonical_url, "title": row[2],
             "niche_hints": [reverse_niches.get(x.strip(), x.strip()) for x in str(row[3]).split(",") if x.strip()],
             "query_languages": [reverse_languages.get(x.strip(), x.strip()) for x in str(row[11]).split(",") if x.strip()],
             "classification": "likely_store" if row[4] == "Вероятно магазин" else "needs_review",
@@ -75,7 +81,7 @@ def lead_from_row(values: list) -> dict:
             "followers": row[8] if isinstance(row[8], (int, float)) else None,
             "country": None, "account_language": None, "last_post_at": None,
             "website_status": "unknown", "website_urls": [], "reasons": [], "previous_reason_text": row[15],
-            "evidence": [{"title": row[2], "snippet": row[6], "url": row[1],
+            "evidence": [{"title": row[2], "snippet": row[6], "url": canonical_url,
                           "query": "", "query_language": "", "observed_at": iso_date(row[13]), "engine": row[14]}]}
 
 
