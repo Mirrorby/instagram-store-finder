@@ -30,6 +30,19 @@ def profile_username(url: str) -> str | None:
     return username if USERNAME.fullmatch(username) else None
 
 
+def own_snippet(snippet: str, username: str) -> str:
+    markers = list(re.finditer(r"\(@([a-zA-Z0-9_.]+)\)", snippet))
+    if markers and markers[0].group(1).lower() != username:
+        return ""
+    if len(markers) > 1:
+        other = next((m for m in markers[1:] if m.group(1).lower() != username), None)
+        if other:
+            headers = list(re.finditer(r"[\d,.]+[KMB]?\s+Followers", snippet[:other.start()], re.I))
+            cutoff = headers[-1].start() if headers and headers[-1].start() > markers[0].end() else other.start()
+            return snippet[:cutoff]
+    return snippet
+
+
 def merge_result(leads: dict, row: dict, query: dict, timestamp: str) -> bool:
     username = profile_username(row.get("href", ""))
     if not username:
@@ -44,7 +57,7 @@ def merge_result(leads: dict, row: dict, query: dict, timestamp: str) -> bool:
     })
     lead["last_seen"] = timestamp
     title = re.split(r"(?:- |• )Instagram", row.get("title", ""), maxsplit=1)[0].strip()
-    snippet = row.get("body", "")
+    snippet = own_snippet(row.get("body", ""), username)
     # Some search results concatenate adjacent profile cards. Do not attribute
     # another shop's caption or statistics to the first profile in the card.
     markers = list(re.finditer(r"\(@([a-zA-Z0-9_.]+)\)", snippet))

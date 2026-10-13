@@ -1,0 +1,28 @@
+name: Check existing profiles
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/enrich.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: store-discovery
+  cancel-in-progress: false
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium --only-shell
+      - run: python -m unittest discover -s tests -v
+      - run: python -m store_finder run --enrich-only --enrichment-budget 12

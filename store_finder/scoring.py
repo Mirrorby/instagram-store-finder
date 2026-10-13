@@ -1,6 +1,7 @@
 """Transparent heuristics. Query text itself is never evidence that an account sells."""
 import re
 import unicodedata
+from .models import own_snippet
 
 COMMERCIAL = [
     "shop", "store", "boutique", "магазин", "заказ", "доставка", "продаж", "купить",
@@ -34,7 +35,7 @@ PRODUCTS = [
 NON_TARGET = ["marketing agency", "social media agency", "web design", "website design",
               "digital marketing", "online course", "life coach", "photography services",
               "салон красоты", "обучение", "онлайн курс", "маркетинговое агентство",
-              "agencia de marketing", "curso online", "salon de beauté"]
+              "agencia de marketing", "curso online", "salon de beauté", "hair salon", "beauty salon", "barbershop", "парикмахерская"]
 
 
 def normalized(text: str) -> str:
@@ -61,7 +62,17 @@ def matches(text: str, terms: list[str]) -> list[str]:
 
 def score(lead: dict) -> dict:
     lead.pop("previous_reason_text", None)
-    text = normalized(" ".join(e["title"] + " " + e["snippet"] for e in lead["evidence"]))
+    indexed_parts = []
+    for evidence in lead["evidence"]:
+        title = evidence["title"]
+        marker = re.search(r"\(@" + re.escape(lead["username"]) + r"\)", title, re.I)
+        if marker:
+            title = title[:marker.end()]
+        indexed_parts.append(title + " " + own_snippet(evidence["snippet"], lead["username"]))
+    indexed = " ".join(indexed_parts)
+    profile_text = lead.get("biography", "") + " " + " ".join(lead.get("recent_captions", []))
+    text = normalized((lead.get("title", "") + " " + profile_text) if
+                      lead.get("profile_status") == "verified" and profile_text.strip() else indexed + " " + profile_text)
     commercial, orders, products, non_target = [matches(text, terms) for terms in
                                                [COMMERCIAL, ORDER, PRODUCTS, NON_TARGET]]
     value = (25 if commercial else 0) + (35 if orders else 0) + (30 if products else 0)
@@ -75,6 +86,4 @@ def score(lead: dict) -> dict:
             lead["reasons"].append({"signal": label, "matched": found[:8]})
     lead["classification"] = ("likely_store" if products and (commercial or orders)
                               and not non_target else "needs_review")
-    # No profile retrieval in v1: absence of a URL in a snippet proves nothing.
-    lead["website_status"] = "unknown"
     return lead

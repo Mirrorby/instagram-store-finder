@@ -10,6 +10,7 @@ from .runner import discover, write_summary
 from .search import SearchClient
 from .storage import empty_state, export_state, read_state, write_state
 from .sheets import SheetsStore, configured_sheet
+from .enrichment import enrich
 
 
 def main():
@@ -24,6 +25,8 @@ def main():
     run.add_argument("--output", type=Path, default=Path("output"))
     run.add_argument("--smoke", action="store_true", help="Discard profile data and print aggregate counts only")
     run.add_argument("--restore-github", action="store_true")
+    run.add_argument("--enrich-only", action="store_true")
+    run.add_argument("--enrichment-budget", type=int, default=12)
     commands.add_parser("generate-key")
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
@@ -61,8 +64,12 @@ def main():
             parser.error("Configure GOOGLE_SERVICE_ACCOUNT_JSON and the destination sheet, or use --smoke")
     else:
         state = empty_state()
-    stats = discover(state, load_queries(args.queries), SearchClient(engines),
-                     args.query_budget, args.results_per_query, args.delay)
+    if not 1 <= args.enrichment_budget <= 100:
+        parser.error("Enrichment budget must be 1..100")
+    client = SearchClient(engines)
+    stats = {} if args.enrich_only else discover(state, load_queries(args.queries), client,
+                     args.query_budget, args.results_per_query, args.delay, max_seconds=300)
+    stats["enrichment"] = enrich(state, client, min(args.enrichment_budget, 2) if args.smoke else args.enrichment_budget)
     if not args.smoke and key:
         write_state(archive, state, key)
     if sheet_store:
@@ -73,6 +80,8 @@ def main():
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as handle:
             handle.write("\n### Store discovery\n\n```json\n" + json.dumps(summary, indent=2) + "\n```\n")
+    if args.enrich_only:
+        return 0
     if not stats["queries_succeeded"]:
         print("Search backends unavailable. No successful queries; database retained.", file=sys.stderr)
         return 2

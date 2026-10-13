@@ -1,0 +1,9 @@
+{
+  "enrichment_budget": 12,
+  "recheck_after_days": 7,
+  "active_within_days": 90,
+  "preferred_followers_min": 200,
+  "preferred_followers_max": 5000,
+  "min_followers": null,
+  "max_followers": null
+}

@@ -1,3 +1,5 @@
 ddgs==9.11.4
 cryptography==50.0.2
 gspread==6.2.1
+requests==2.32.5
+playwright==1.58.0
