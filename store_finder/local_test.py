@@ -38,7 +38,7 @@ def login(session):
         input("Нажмите Enter после входа: ")
         cookies = browser.context.cookies("https://www.instagram.com/")
         if not any(cookie.get("name") == "sessionid" and cookie.get("value") for cookie in cookies):
-            print("Сессия входа не обнаружена. Повторите команду login и завершите вход в браузере.")
+            print("Вход не завершён. Если CAPTCHA повторяется, остановите этот способ. Используйте local-test --chrome с уже открытой сессией обычного Chrome.")
             return 2
         save_session(browser.context, session)
     print(f"Сессия сохранена: {session}. Файл содержит доступ к аккаунту; храните его только у себя.")
@@ -59,9 +59,9 @@ def usernames(values):
     return result
 
 
-def local_test(accounts, session, output, headless=False):
+def local_test(accounts, session, output, headless=False, attach_chrome=False, chrome_user_data_dir=None):
     names = usernames(accounts)
-    if not session.is_file():
+    if not attach_chrome and not session.is_file():
         print("Сначала выполните: python -m store_finder login")
         return 2
     leads = {}
@@ -70,7 +70,8 @@ def local_test(accounts, session, output, headless=False):
         merge_result(leads, {"href": f"https://www.instagram.com/{name}/", "title": "", "body": ""}, query, now())
     fetcher, config = Fetcher(), settings()
     tested = []
-    with BrowserProfiles(headless=headless, storage_state=session) as browser:
+    with BrowserProfiles(headless=headless, storage_state=None if attach_chrome else session,
+                         attach_chrome=attach_chrome, chrome_user_data_dir=chrome_user_data_dir) as browser:
         for name in names:
             lead = leads[name]
             print(f"Проверяю @{name}…", flush=True)
@@ -96,7 +97,7 @@ def local_test(accounts, session, output, headless=False):
         "with_post_dates": sum(bool(lead.get('last_post_at')) for lead in tested),
         "with_confirmed_profile_links": sum(bool(lead.get('links_complete')) for lead in tested),
         "browser_results": dict(Counter(lead.get('browser_status', 'unknown') for lead in tested)),
-        "sheets_written": False}
+        "sheets_written": False, "mode": "existing_chrome" if attach_chrome else "saved_session"}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps({"summary": summary, "profiles": tested}, ensure_ascii=False, indent=2), encoding="utf-8")
     print("\nИтог: " + json.dumps(summary, ensure_ascii=False))

@@ -1,5 +1,40 @@
 # Проверка Instagram на Mac
 
+## Если Instagram уже открыт в обычном Chrome
+
+Этот режим использует существующую сессию. Новый вход и файл сессии не нужны.
+Chrome должен быть версии 144 или новее.
+
+1. Оставьте обычный Chrome открытым с рабочей сессией Instagram.
+2. В адресной строке откройте `chrome://inspect/#remote-debugging`.
+3. Включите **Allow remote debugging for this browser instance**.
+4. В папке проекта выполните:
+
+```sh
+git pull
+python -m store_finder local-test --chrome --accounts ACCOUNT1 ACCOUNT2 ACCOUNT3
+```
+
+Если Chrome покажет запрос подключения, подтвердите его. Парсер подключится
+к открытому браузеру и создаст собственные временные вкладки Instagram.
+Он закроет только эти вкладки; Chrome и ранее открытые вкладки останутся.
+Cookies не копируются в файл и не включаются в отчёт. Google Sheets не изменяется.
+После теста выключите разрешение удалённой отладки.
+
+Используется локальное подключение CDP. Адрес берётся только из служебного
+`DevToolsActivePort` в каталоге Chrome, подключение ограничено `127.0.0.1`.
+Если у Chrome другой каталог, укажите его через `--chrome-user-data-dir`.
+Каталог можно посмотреть в `chrome://version`: это родитель **Profile Path**.
+Парсер не открывает базы паролей и cookies на диске.
+
+Документация: https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session
+
+## Вход в отдельном Chromium
+
+При повторяющейся CAPTCHA прекратите этот способ и используйте режим обычного
+Chrome выше, если в нём уже есть рабочая сессия. Сам по себе Playwright не гарантирует
+успешный вход в Instagram.
+
 Для локального теста нужны Python 3.9 или новее и копия репозитория. Если Python отсутствует,
 установите его с https://www.python.org/downloads/macos/.
 

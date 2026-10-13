@@ -1,6 +1,9 @@
 """Public Chromium context: page responses and one same-origin profile fetch."""
 import json
 import os
+import re
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 from .models import now
 from .profiles import apply_profile_record, parse_profile_html
@@ -20,14 +23,49 @@ def apply_payload(lead, payload):
     return applied
 
 
+def chrome_endpoint(user_data_dir=None):
+    if user_data_dir is None:
+        if sys.platform != 'darwin':
+            raise ValueError('Укажите --chrome-user-data-dir для этой системы')
+        user_data_dir = Path.home() / 'Library/Application Support/Google/Chrome'
+    path = Path(user_data_dir).expanduser() / 'DevToolsActivePort'
+    try:
+        lines = path.read_text().strip().splitlines()
+        port = int(lines[0])
+        route = lines[1].strip()
+        if not 1 <= port <= 65535 or not re.fullmatch(r'/devtools/browser/[A-Za-z0-9_-]+', route):
+            raise ValueError('Invalid local endpoint')
+        return f'ws://127.0.0.1:{port}{route}'
+    except (OSError, ValueError, IndexError) as exc:
+        raise ValueError('Откройте обычный Chrome 144+, перейдите в chrome://inspect/#remote-debugging и включите разрешение удалённой отладки. Если используется другой каталог Chrome, укажите --chrome-user-data-dir.') from exc
+
+
 class BrowserProfiles:
-    def __init__(self, headless=True, storage_state=None):
+    def __init__(self, headless=True, storage_state=None, attach_chrome=False, chrome_user_data_dir=None):
         self.headless = headless
         self.storage_state = storage_state
+        self.attach_chrome = attach_chrome
+        self.chrome_user_data_dir = chrome_user_data_dir
 
     def __enter__(self):
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import sync_playwright, Error
         self.runtime = sync_playwright().start()
+        if self.attach_chrome:
+            try:
+                endpoint = chrome_endpoint(self.chrome_user_data_dir)
+                print('Подключаюсь к открытому Chrome. Если браузер покажет запрос, разрешите подключение.', flush=True)
+                self.browser = self.runtime.chromium.connect_over_cdp(endpoint, timeout=60000)
+                if not self.browser.contexts:
+                    raise ValueError('В подключённом Chrome нет доступного контекста')
+                self.context = self.browser.contexts[0]
+            except Error as exc:
+                self.runtime.stop()
+                raise ValueError('Chrome не принял подключение. Убедитесь, что обычный Chrome открыт, удалённая отладка включена и запрос подключения разрешён. Повторите команду только после проверки этих настроек.') from exc
+            except Exception:
+                self.runtime.stop()
+                raise
+            self.denied = False
+            return self
         options = {"headless": self.headless}
         transport = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
         if transport:
@@ -49,8 +87,11 @@ class BrowserProfiles:
         return self
 
     def __exit__(self, *args):
-        self.browser.close()
-        self.runtime.stop()
+        try:
+            if not self.attach_chrome:
+                self.browser.close()
+        finally:
+            self.runtime.stop()
 
     def fetch(self, lead):
         from playwright.sync_api import Error
@@ -75,7 +116,8 @@ class BrowserProfiles:
                 pass
 
         page.on("response", capture)
-        page.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
+        if not self.attach_chrome:
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
         try:
             response = page.goto(lead["profile_url"], wait_until="commit", timeout=25000)
             page.wait_for_timeout(3000)

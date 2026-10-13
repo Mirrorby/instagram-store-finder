@@ -7,9 +7,41 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 from store_finder.local_test import local_test, save_session, usernames
+from store_finder.browser import chrome_endpoint, BrowserProfiles
 
 
 class LocalTestTests(unittest.TestCase):
+    def test_existing_chrome_endpoint_is_loopback_and_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'DevToolsActivePort'
+            path.write_text('12345\n/devtools/browser/test-id\n')
+            self.assertEqual(chrome_endpoint(directory), 'ws://127.0.0.1:12345/devtools/browser/test-id')
+            for text in ['0\n/devtools/browser/test', '65536\n/devtools/browser/test', '12345\nhttps://other.test', '12345\n/devtools/browser/test?x=1']:
+                path.write_text(text)
+                with self.assertRaises(ValueError): chrome_endpoint(directory)
+
+    def test_attached_exit_does_not_close_users_browser(self):
+        from unittest.mock import Mock
+        browser = BrowserProfiles(attach_chrome=True)
+        browser.browser = Mock(); browser.runtime = Mock()
+        browser.__exit__(None, None, None)
+        browser.browser.close.assert_not_called()
+        browser.runtime.stop.assert_called_once()
+
+    def test_chrome_mode_does_not_require_a_session_file(self):
+        from unittest.mock import Mock
+        context = Mock()
+        context.__enter__ = Mock(return_value=context)
+        context.__exit__ = Mock(return_value=None)
+        def fetch(shop): shop.update(profile_status='restricted', browser_status='restricted')
+        context.fetch = fetch
+        with tempfile.TemporaryDirectory() as directory, patch('store_finder.local_test.BrowserProfiles', return_value=context) as constructor, patch('store_finder.local_test.print'):
+            path = Path(directory)
+            self.assertEqual(local_test(['example_shop'], path/'missing.json', path/'report.json', attach_chrome=True), 0)
+            self.assertIsNone(constructor.call_args.kwargs['storage_state'])
+            self.assertTrue(constructor.call_args.kwargs['attach_chrome'])
+            self.assertEqual(json.loads((path/'report.json').read_text())['summary']['mode'], 'existing_chrome')
+
     def test_cli_local_commands_can_start(self):
         for command in ['login', 'local-test']:
             result = subprocess.run([sys.executable, '-m', 'store_finder', command, '--help'], capture_output=True, text=True)

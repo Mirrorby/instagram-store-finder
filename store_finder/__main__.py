@@ -27,6 +27,8 @@ def main():
     local.add_argument("--session", type=Path, default=Path(".auth/instagram.json"))
     local.add_argument("--output", type=Path, default=Path("output/local-test.json"))
     local.add_argument("--headless", action="store_true")
+    local.add_argument("--chrome", action="store_true", help="Use the open, authorised Chrome session; no new login")
+    local.add_argument("--chrome-user-data-dir", type=Path)
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
@@ -36,7 +38,11 @@ def main():
         return login(args.session)
     if args.command == "local-test":
         from .local_test import local_test
-        return local_test(args.accounts, args.session, args.output, args.headless)
+        try:
+            return local_test(args.accounts, args.session, args.output, args.headless, args.chrome, args.chrome_user_data_dir)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     from cryptography.fernet import Fernet
     if args.command == "generate-key":
         print(Fernet.generate_key().decode())
