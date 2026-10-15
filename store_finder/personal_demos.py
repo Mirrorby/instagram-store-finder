@@ -134,7 +134,7 @@ def make_bundle(lead, language='en', currency='USD', theme='minimal', minimum=3)
         'status': 'needs_review' if issues else 'collected', 'issues': issues,
         'source': lead, 'productSources': sources,
         'store': {'name': name, 'slug': slug, 'status': 'demo', 'settings': {
-            'language': language, 'theme': theme, 'description': lead.get('biography', '')[:2000],
+            'language': language, 'theme': theme, 'description': lead.get('biography', '').strip()[:2000].strip(),
             'instagram': lead['username'], 'currencies': [currency], 'heroTitle': name,
             'footerText': '© ' + name, 'accentColor': '#5865E8'}, 'products': products}}
 
