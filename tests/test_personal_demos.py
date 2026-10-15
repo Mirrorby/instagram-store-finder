@@ -157,6 +157,19 @@ class PersonalDemosTests(unittest.TestCase):
                 publish(bundle, Path(tmp), api)
             self.assertEqual(api.uploads, 0)
 
+    def test_resume_refuses_manual_settings_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            bundle, api = self.bundle(directory), FakeAPI()
+            api.lose_product_response = True
+            with self.assertRaises(ValueError):
+                publish(bundle, directory, api)
+            api.store['settings']['description'] = 'Manually edited description'
+            api.store['version'] += 1
+            with self.assertRaisesRegex(ValueError, 'вручную'):
+                publish(bundle, directory, api)
+            self.assertEqual(api.store['settings']['description'], 'Manually edited description')
+
     @patch('store_finder.personal_demos.requests.head', return_value=SimpleNamespace(status_code=200, headers={'Content-Type': 'image/jpeg'}))
     def test_old_api_cannot_mark_demo_ready_without_price_mode(self, head):
         with tempfile.TemporaryDirectory() as tmp:

@@ -197,6 +197,14 @@ def publish(bundle, directory, api):
     current = api.request(base)
     if current['status'] != 'demo' or current.get('settings', {}).get('instagram') != bundle['username']:
         raise ValueError('Магазин активирован или изменён вручную; автоматический импорт остановлен')
+    snapshot = {k: current[k] for k in ('name', 'settings', 'version')}
+    if state.get('remote') and snapshot != state['remote']:
+        if snapshot != state.get('settingsIntent'):
+            raise ValueError('Настройки магазина изменены вручную; импорт остановлен')
+        # The previous PUT succeeded, but its response/checkpoint was lost.
+    state['remote'] = snapshot
+    state.pop('settingsIntent', None)
+    save(state_path, state)
 
     def upload(asset):
         digest = asset['sha256']
@@ -216,7 +224,11 @@ def publish(bundle, directory, api):
         return state['uploads'][digest]
 
     settings = {**current['settings'], **store['settings'], 'logo': upload(bundle['source']['logo_asset'])}
+    state['settingsIntent'] = {'name': store['name'], 'settings': settings, 'version': current['version'] + 1}
+    save(state_path, state)
     api.request(base + '/settings', 'PUT', {'name': store['name'], 'settings': settings, 'version': current['version']})
+    state['remote'] = state.pop('settingsIntent')
+    save(state_path, state)
     expected = []
     for product, source in zip(store['products'], bundle['productSources']):
         photos = [upload(asset) for asset in source['assets']]
