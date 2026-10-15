@@ -35,10 +35,32 @@ def main():
     cloud.add_argument('--output', type=Path, default=Path('output/cloud-summary.json'))
     cloud.add_argument('--force', action='store_true', help='Ignore the daily guard for an explicit manual test')
     cloud.add_argument('--max-charge', type=float, default=0.10)
+    demos = commands.add_parser('demos', help='Collect personalized Instagram demos locally; optionally publish and prepare a contact draft')
+    source = demos.add_mutually_exclusive_group(required=True)
+    source.add_argument('--accounts', nargs='+')
+    source.add_argument('--accounts-file', type=Path)
+    source.add_argument('--from-sheet', action='store_true')
+    demos.add_argument('--output', type=Path, default=Path('output/demos'))
+    demos.add_argument('--limit', type=int, default=3)
+    demos.add_argument('--products', type=int, default=6)
+    demos.add_argument('--min-products', type=int, default=3)
+    demos.add_argument('--language', choices=['ru', 'en'], default='en')
+    demos.add_argument('--currency', choices=['BYN', 'RUB', 'KZT', 'USD', 'EUR'], default='USD')
+    demos.add_argument('--theme', choices=['minimal', 'fashion', 'home', 'beauty'], default='minimal')
+    demos.add_argument('--chrome-user-data-dir', type=Path)
+    demos.add_argument('--cdp-endpoint')
+    demos.add_argument('--publish', action='store_true', help='Create demo via Delokay API, archive photos and prepare (never send) first contact')
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
     args = parser.parse_args()
+    if args.command == 'demos':
+        from .personal_demos import run_demos
+        try:
+            return run_demos(args)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.command == "login":
         from .local_test import login
         return login(args.session)

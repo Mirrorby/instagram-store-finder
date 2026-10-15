@@ -1,0 +1,105 @@
+"""Bounded local collection through normal profile/post navigation, without API replay."""
+from urllib.parse import urlparse
+from .browser import decode_payloads, apply_payload
+from .profiles import parse_profile_html
+from .post_dates import post_url
+from .demo_media import apply_demo_html, apply_demo_payload, image_url
+
+
+class InstagramRestricted(ValueError):
+    pass
+
+
+def collect_demo(browser, username, count=6, max_pages=18):
+    from playwright.sync_api import Error
+    lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
+    restricted = [False]
+    debug = {'pages': 0, 'scrolls': 0, 'payloads': 0}
+    lead['demo_debug'] = debug
+
+    def capture(response):
+        parsed = urlparse(response.url)
+        if parsed.hostname not in {'www.instagram.com', 'instagram.com'} or not any(x in parsed.path for x in ('/api/', '/graphql/')):
+            return
+        if response.status in {401, 403, 429}:
+            restricted[0] = True
+            return
+        if response.status != 200 or debug['payloads'] >= 100:
+            return
+        try:
+            if int(response.headers.get('content-length', '0')) > 3_000_000:
+                return
+            body = response.body()
+            if len(body) <= 3_000_000:
+                for payload in decode_payloads(body):
+                    apply_payload(lead, payload)
+                    apply_demo_payload(lead, payload)
+                    debug['payloads'] += 1
+        except (Error, ValueError):
+            pass
+
+    def visit(page, url):
+        page.on('response', capture)
+        debug['pages'] += 1
+        response = page.goto(url, wait_until='domcontentloaded', timeout=30000)
+        page.wait_for_timeout(2000)
+        if restricted[0] or (response and response.status in {401, 403, 429}) or any(x in page.url for x in ('/accounts/login', '/challenge/', '/checkpoint/')):
+            raise InstagramRestricted('Instagram ограничил доступ или требует вход. Партия остановлена.')
+        if response and response.status >= 400:
+            raise ValueError('Страница Instagram недоступна')
+        return page.content()
+
+    profile = browser.context.new_page()
+    try:
+        html = visit(profile, lead['profile_url'])
+        parse_profile_html(lead, html)
+        apply_demo_html(lead, html)
+        if lead.get('is_private'):
+            raise ValueError('Закрытый аккаунт: демо не создаётся')
+        urls = []
+        for scroll in range(4):
+            hrefs = profile.locator('main a[href*="/p/"], [role="main"] a[href*="/p/"]').evaluate_all('(links) => links.slice(0, 60).map(a => a.href)')
+            urls = list(dict.fromkeys(urls + [post_url(href, username) for href in hrefs if post_url(href, username)]))
+            if len(urls) >= max_pages or scroll == 3:
+                break
+            profile.evaluate('window.scrollBy(0, 900)')
+            profile.wait_for_timeout(1500)
+            debug['scrolls'] += 1
+            if restricted[0]:
+                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+        # Capture JSON inserted after scrolling, too.
+        apply_demo_html(lead, profile.content())
+        urls = list(dict.fromkeys(urls + [p['url'] for p in lead.get('photo_posts', [])]))[:max_pages]
+        for url in urls:
+            if restricted[0]:
+                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+            code = url.rstrip('/').rsplit('/', 1)[-1]
+            known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
+            if known and known.get('caption') and known.get('date'):
+                continue
+            page = browser.context.new_page()
+            try:
+                html = visit(page, url)
+                document = apply_demo_html(lead, html, url)
+                # A conservative DOM fallback: explicit photo metadata + author + date.
+                # Unknown types, videos, avatar images and comment text are not imported.
+                title = document.meta.get('og:title', '')
+                import re
+                owned = re.search(r'\(@' + re.escape(username) + r'\)', title, re.I)
+                if owned and document.meta.get('og:type') in {'instapp:photo', 'photo'} and not page.locator('article video, main video').count():
+                    article = page.locator('article').first
+                    caption = article.locator('h1').first.text_content(timeout=1000) if article.locator('h1').count() else ''
+                    times = article.locator('time[datetime]').evaluate_all('(times) => times.map(t => ({date:t.getAttribute("datetime"),href:t.closest("a[href]")?.href||""}))')
+                    date = next((t['date'] for t in times if post_url(t['href'], username) == url), None)
+                    image = image_url(document.meta.get('og:image'))
+                    if image and caption and date:
+                        apply_demo_payload(lead, {'shortcode': code, 'owner': {'username': username},
+                            'type': 'Image', 'display_url': image, 'caption': caption, 'timestamp': date})
+            except Error:
+                debug['page_errors'] = debug.get('page_errors', 0) + 1
+            finally:
+                page.close()
+        lead['photo_posts'] = sorted(lead['photo_posts'], key=lambda p: p['date'] or '', reverse=True)[:count]
+        return lead
+    finally:
+        profile.close()
