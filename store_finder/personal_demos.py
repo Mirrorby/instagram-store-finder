@@ -2,6 +2,7 @@
 
 No message sending. Checkpoints allow safe resume after network failures.
 """
+from .demo_copy import COPY, demo_text
 import contextlib
 import fcntl
 import hashlib
@@ -16,6 +17,7 @@ import requests
 from .browser import BrowserProfiles
 from .demo_browser import InstagramRestricted, collect_demo
 from .demo_media import image_url
+from .demo_identity import account_language, account_contacts
 from .local_test import usernames
 from .models import now
 
@@ -106,7 +108,8 @@ def archive_media(lead, directory):
         post['assets'] = [archive(url) for url in post['images']]
 
 
-def make_bundle(lead, language='en', currency='USD', theme='minimal', minimum=3):
+def make_bundle(lead, language='auto', currency='USD', theme='minimal', minimum=3):
+    language = account_language(lead) if language == 'auto' else language
     issues = []
     if not lead.get('title') or lead['title'] == lead['username']:
         issues.append('Не получено название магазина')
@@ -123,19 +126,19 @@ def make_bundle(lead, language='en', currency='USD', theme='minimal', minimum=3)
     sources = []
     for post in ready:
         lines = [line.strip() for line in post['caption'].splitlines() if line.strip() and not line.lstrip().startswith(('#', '@', 'http'))]
-        title = (lines[0] if lines else ('Товар' if language == 'ru' else 'Product'))[:150]
+        title = (lines[0] if lines else demo_text('Product', language))[:150]
         products.append({'name': title, 'description': post['caption'],
-            'category': 'Каталог' if language == 'ru' else 'Catalog', 'brand': name[:100],
+            'category': demo_text('Catalog', language), 'brand': name[:100],
             'sku': 'IG-' + post['code'], 'prices': {currency: 0}, 'priceOnRequest': True,
             'availability': 'preorder', 'photos': [],
-            'variants': [{'label': 'Уточнить вариант' if language == 'ru' else 'Confirm option', 'stock': None}]})
+            'variants': [{'label': demo_text('Confirm option', language), 'stock': None}]})
         sources.append({'postUrl': post['url'], 'date': post['date'], 'assets': post['assets']})
     return {'schemaVersion': 1, 'username': lead['username'], 'collectedAt': now(),
         'status': 'needs_review' if issues else 'collected', 'issues': issues,
         'source': lead, 'productSources': sources,
         'store': {'name': name, 'slug': slug, 'status': 'demo', 'settings': {
             'language': language, 'theme': theme, 'description': lead.get('biography', '').strip()[:2000].strip(),
-            'instagram': lead['username'], 'currencies': [currency], 'heroTitle': name,
+            **account_contacts(lead), 'currencies': [currency], 'heroTitle': name,
             'footerText': '© ' + name, 'accentColor': '#5865E8'}, 'products': products}}
 
 
@@ -175,6 +178,9 @@ def publish(bundle, directory, api):
     if not config.get('features', {}).get('priceOnRequest'):
         raise ValueError('Обновите Delokay: сервер ещё не поддерживает цены по запросу')
     store = bundle['store']
+    supported = config.get('features', {}).get('supportedLanguages', ['ru', 'en'])
+    if store['settings']['language'] not in supported:
+        raise ValueError('Обновите Delokay: сервер ещё не поддерживает язык ' + store['settings']['language'])
     save(state_path, state)  # Save creation intent BEFORE the mutating request.
     if not state.get('store'):
         existing = api.request('/api/stores/' + store['slug'], missing=True)
@@ -256,18 +262,58 @@ def publish(bundle, directory, api):
     return state
 
 
+def update_demo_profile(bundle, directory, api, language='auto'):
+    """Explicitly update identity settings of a previously verified demo."""
+    path = directory / 'publish.json'
+    if not path.exists():
+        return
+    state = json.loads(path.read_text())
+    if state.get('status') != 'ready':
+        return  # Let the normal publisher resume an incomplete import first.
+    if state.get('origin') != api.origin:
+        raise ValueError('Демо привязано к другому серверу')
+    base = '/api/platform/stores/' + state['store']['id']
+    current = api.request(base)
+    if current['status'] != 'demo' or current['settings'].get('instagram') != bundle['username']:
+        raise ValueError('Обновлять можно только исходное демо этого аккаунта')
+    snapshot = {k: current[k] for k in ('name', 'settings', 'version')}
+    if snapshot != state.get('remote') and snapshot != state.get('profileUpdateIntent'):
+        raise ValueError('Настройки изменены вручную; обновление остановлено')
+    language = account_language(bundle['source']) if language == 'auto' else language
+    settings = {**current['settings'], **account_contacts(bundle['source']), 'language': language}
+    # Preserve contacts entered manually after import when Instagram has no value.
+    for key in ('telegram', 'whatsapp'):
+        settings[key] = settings[key] or current['settings'].get(key, '')
+    if settings != current['settings']:
+        state['profileUpdateIntent'] = {'name': current['name'], 'settings': settings, 'version': current['version'] + 1}
+        save(path, state)
+        api.request(base + '/settings', 'PUT', {'name': current['name'], 'settings': settings, 'version': current['version']})
+    actual = api.request(base)
+    if any(actual['settings'].get(k) != settings[k] for k in ('language', 'instagram', 'telegram', 'whatsapp')):
+        raise ValueError('Проверка языка и контактов после обновления не пройдена')
+    state['remote'] = {k: actual[k] for k in ('name', 'settings', 'version')}
+    state.pop('profileUpdateIntent', None)
+    save(path, state)
+    bundle['store']['settings'].update({k: settings[k] for k in ('language', 'instagram', 'telegram', 'whatsapp')})
+    save(directory / 'bundle.json', bundle)
+
+
 def contact_draft(bundle, url):
     name = bundle['store']['name']
-    if bundle['store']['settings']['language'] == 'ru':
+    language = bundle['store']['settings']['language']
+    if language in COPY['messages']:
+        return COPY['messages'][language].format(name=name, url=url)
+    if language == 'ru':
         return f'Здравствуйте! Подготовил для {name} пример сайта-каталога с вашим логотипом и товарами из Instagram: {url}\n\nЭто демонстрация; реальные заказы отключены. Названия, цены и наличие можно отредактировать. Если вам интересно, покажу, как управлять каталогом и получать заказы в Telegram.'
     return f'Hi! I put together a sample product catalog for {name}, using your logo and products from Instagram: {url}\n\nThis is a demo; real orders are disabled. Product names, prices and availability can be edited. If you are interested, I can show you how to manage the catalog and receive orders in Telegram.'
 
 
 def write_preview(bundle, directory):
     esc = html.escape
-    cards = ''.join('<article><img src="' + esc(source['assets'][0]['file']) + '"><h2>' + esc(p['name']) + '</h2><p>' + esc(p['description']) + '</p><a href="' + esc(source['postUrl']) + '">Instagram</a></article>' for p, source in zip(bundle['store']['products'], bundle['productSources']))
+    cards = ''.join('<article><div class="photos">' + ''.join('<img loading="lazy" alt="' + esc(p['name'], quote=True) + '" src="' + esc(asset['file'], quote=True) + '">' for asset in source['assets']) + '</div><h2>' + esc(p['name']) + '</h2><p>' + esc(p['description']) + '</p><p>' + esc(demo_text('Price on request', bundle['store']['settings']['language'])) + '</p><a href="' + esc(source['postUrl'], quote=True) + '">Instagram · ' + esc(source['date'][:10]) + '</a></article>' for p, source in zip(bundle['store']['products'], bundle['productSources']))
     logo = bundle['source'].get('logo_asset')
-    private_write(directory / 'preview.html', '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Demo review</title><style>body{font:16px system-ui;background:#f7f8fc;color:#253047;margin:32px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:24px}article{padding:18px;background:white;border-radius:20px}img{width:100%;height:280px;object-fit:cover;border-radius:12px}p{white-space:pre-wrap}header img{width:80px;height:80px}</style><header>' + ('<img src="' + esc(logo['file']) + '">' if logo else '') + '<h1>' + esc(bundle['store']['name']) + '</h1><p>' + esc(bundle['store']['settings']['description']) + '</p><p>' + esc('; '.join(bundle['issues'])) + '</p></header><main>' + cards + '</main>')
+    links = ''.join('<p><a href="' + esc(url, quote=True) + '">' + esc(url) + '</a></p>' for url in bundle['source'].get('website_urls', []) if urlparse(url).scheme in {'http', 'https'})
+    private_write(directory / 'preview.html', '<!doctype html><html lang="' + esc(bundle['store']['settings']['language']) + '"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>' + esc(bundle['store']['name']) + ' · Demo review</title><style>body{font:16px system-ui;background:#f7f8fc;color:#253047;margin:32px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}article{padding:18px;background:white;border-radius:20px;min-width:0}.photos{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px}.photos img{width:100%;flex:0 0 100%;height:320px;object-fit:contain;scroll-snap-align:start;border-radius:12px}p{white-space:pre-wrap;overflow-wrap:anywhere}header img{width:80px;height:80px;border-radius:50%}header{max-width:780px;margin-bottom:32px}h2{font-size:20px}</style><header>' + ('<img alt="Logo" src="' + esc(logo['file']) + '">' if logo else '') + '<h1>' + esc(bundle['store']['name']) + '</h1><p>' + esc(bundle['store']['settings']['description']) + '</p>' + links + '<p>' + esc('; '.join(bundle['issues'])) + '</p></header><main>' + cards + '</main></html>')
 
 
 def sheet_queue(limit):
@@ -301,6 +347,10 @@ def mark_sheet_ready(store, username, url):
 
 
 def run_demos(args):
+    if getattr(args, 'update_demo_profile', False) and not args.publish:
+        raise ValueError('--update-demo-profile используется вместе с --publish')
+    if not 0 <= getattr(args, 'max_scrolls', 12) <= 30:
+        raise ValueError('--max-scrolls: допустимо 0–30')
     if not 1 <= args.limit <= 10 or not 1 <= args.products <= 12 or not 1 <= args.min_products <= args.products:
         raise ValueError('Партия: 1–10 аккаунтов; товаров: 1–12; минимум не больше числа товаров')
     sheet = None
@@ -329,22 +379,29 @@ def run_demos(args):
                         bundle = json.loads(path.read_text())
                         if bundle.get('username') != name:
                             raise ValueError('Аккаунт в сохранённом сборе не совпадает с очередью')
+                        if not (directory / 'publish.json').exists():
+                            bundle = make_bundle(bundle['source'], args.language, args.currency, args.theme, args.min_products)
+                            save(path, bundle)
                         print('  Использую сохранённый сбор; Instagram повторно не открывается', flush=True)
                     else:
                         if browser is None:
                             browser = stack.enter_context(BrowserProfiles(headless=False, attach_chrome=True,
                                 chrome_user_data_dir=args.chrome_user_data_dir, cdp_endpoint=args.cdp_endpoint))
-                        lead = collect_demo(browser, name, args.products, max_pages=min(36, max(18, args.products * 3)))
+                        lead = collect_demo(browser, name, args.products, max_pages=min(36, max(18, args.products * 3)),
+                                            max_scrolls=getattr(args, 'max_scrolls', 12))
                         save(directory / 'source.json', lead)
                         archive_media(lead, directory)
                         bundle = make_bundle(lead, args.language, args.currency, args.theme, args.min_products)
                         save(path, bundle)
-                        write_preview(bundle, directory)
+                    write_preview(bundle, directory)
                     if bundle['issues']:
                         print('  Нужна проверка: ' + '; '.join(bundle['issues']), flush=True)
                         failures += 1
                         continue
                     if api:
+                        if getattr(args, 'update_demo_profile', False):
+                            update_demo_profile(bundle, directory, api, args.language)
+                            write_preview(bundle, directory)
                         state = publish(bundle, directory, api)
                         url = state['store']['url']
                         private_write(directory / 'first-contact.txt', contact_draft(bundle, url) + '\n')

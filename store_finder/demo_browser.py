@@ -10,7 +10,7 @@ class InstagramRestricted(ValueError):
     pass
 
 
-def collect_demo(browser, username, count=6, max_pages=18):
+def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
     from playwright.sync_api import Error
     lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
     restricted = [False]
@@ -57,20 +57,33 @@ def collect_demo(browser, username, count=6, max_pages=18):
         if lead.get('is_private'):
             raise ValueError('Закрытый аккаунт: демо не создаётся')
         urls = []
-        for scroll in range(4):
-            hrefs = profile.locator('main a[href*="/p/"], [role="main"] a[href*="/p/"]').evaluate_all('(links) => links.slice(0, 60).map(a => a.href)')
+        stale = 0
+        previous = None
+        for scroll in range(max_scrolls + 1):
+            # Instagram can render its grid outside main, and may need several
+            # screens of mostly reels before another still photo is loaded.
+            hrefs = profile.locator('a[href*="/p/"]').evaluate_all('(links) => links.slice(0, 120).map(a => a.href)')
             urls = list(dict.fromkeys(urls + [post_url(href, username) for href in hrefs if post_url(href, username)]))
-            if len(urls) >= max_pages or scroll == 3:
+            apply_demo_html(lead, profile.content())
+            complete = [p for p in lead['photo_posts'] if p.get('caption') and p.get('date')]
+            progress = (len(urls), len(lead['photo_posts']), profile.evaluate('document.documentElement.scrollHeight'))
+            stale = stale + 1 if progress == previous else 0
+            previous = progress
+            if len(complete) >= count or len(urls) >= max_pages or scroll == max_scrolls or stale >= 3:
                 break
-            profile.evaluate('window.scrollBy(0, 900)')
+            profile.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
             profile.wait_for_timeout(1500)
             debug['scrolls'] += 1
             if restricted[0]:
                 raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
         # Capture JSON inserted after scrolling, too.
         apply_demo_html(lead, profile.content())
+        debug['photo_links'] = len(urls)
+        debug['stop_reason'] = 'enough_photos' if len(complete) >= count else ('no_progress' if stale >= 3 else 'collection_limit')
         urls = list(dict.fromkeys(urls + [p['url'] for p in lead.get('photo_posts', [])]))[:max_pages]
         for url in urls:
+            if sum(bool(p.get('caption') and p.get('date')) for p in lead['photo_posts']) >= count:
+                break
             if restricted[0]:
                 raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             code = url.rstrip('/').rsplit('/', 1)[-1]

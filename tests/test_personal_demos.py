@@ -4,9 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from store_finder.demo_browser import collect_demo
 from store_finder.demo_media import apply_demo_payload, apply_demo_html, image_url
-from store_finder.personal_demos import make_bundle, publish, contact_draft, save, locked, PlatformAPI, mark_sheet_ready
+from store_finder.personal_demos import make_bundle, publish, contact_draft, save, locked, PlatformAPI, mark_sheet_ready, update_demo_profile
+from store_finder.demo_identity import account_language, account_contacts
 
 IMAGE = 'https://scontent.cdninstagram.com/product.jpg?token=temporary'
 JPEG = b'\xff\xd8\xff' + b'\x00' * 16
@@ -60,6 +62,79 @@ class FakeAPI:
 
 
 class PersonalDemosTests(unittest.TestCase):
+    def test_account_language_uses_bio_then_captions_and_supported_fallback(self):
+        self.assertEqual(account_language({'biography': 'Украшения ручной работы. Доставка по всему миру.'}), 'ru')
+        self.assertEqual(account_language({'biography': 'Handmade artisan jewelry from Arizona'}), 'en')
+        self.assertEqual(account_language({'biography': '✨', 'photo_posts': [{'caption': 'Кольцо из серебра ручной работы'}]}), 'ru')
+        self.assertEqual(account_language({'biography': 'Bijoux artisanaux fabriqués à Paris'}), 'fr')
+        self.assertEqual(account_language({'biography': 'Украшения ручной работы #handmadejewelry #jewelrydesign https://shop.example.com'}), 'ru')
+
+    def test_contacts_use_explicit_links_without_inventing_phone_or_username(self):
+        lead = {'username': 'shop', 'biography': 'Telegram: t.me/my_shop WhatsApp: https://wa.me/375291234567', 'website_urls': []}
+        self.assertEqual(account_contacts(lead), {'instagram': 'shop', 'telegram': 'my_shop', 'whatsapp': '375291234567'})
+        lead['biography'] = 'Call +375291234567 @random_handle'
+        self.assertEqual(account_contacts(lead), {'instagram': 'shop', 'telegram': '', 'whatsapp': ''})
+        lead['website_urls'] = ['https://t.me/share?url=x', 'https://wa.me.evil.com/375291234567', 'https://t.me:bad/my_shop']
+        self.assertEqual(account_contacts(lead)['telegram'], '')
+        self.assertEqual(account_contacts(lead)['whatsapp'], '')
+
+    @patch('store_finder.personal_demos.requests.head', return_value=SimpleNamespace(status_code=200, headers={'Content-Type': 'image/jpeg'}))
+    def test_update_published_demo_profile_preserves_store_products_and_manual_changes(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            bundle, api = self.bundle(directory), FakeAPI()
+            bundle['source']['biography'] = 'Handmade artisan jewelry from Arizona'
+            bundle['store']['settings']['language'] = 'ru'
+            publish(bundle, directory, api)
+            update_demo_profile(bundle, directory, api)
+            self.assertEqual(api.store['settings']['language'], 'en')
+            self.assertEqual((api.creates, api.product_creates), (1, 1))
+            self.assertTrue(contact_draft(bundle, 'https://demo.example').startswith('Hi!'))
+            update_demo_profile(bundle, directory, api)
+            api.store['settings']['description'] = 'Manual edit'
+            with self.assertRaisesRegex(ValueError, 'вручную'):
+                update_demo_profile(bundle, directory, api)
+
+    def test_collection_scrolls_past_reels_until_photos_and_stops(self):
+        page = MagicMock()
+        scrolls = [0]
+        page.url = 'https://www.instagram.com/shop/'
+        page.goto.return_value.status = 200
+        page.locator.return_value.evaluate_all.return_value = []
+        def evaluate(script):
+            if script.startswith('window.scrollTo'):
+                scrolls[0] += 1
+            return 1000 * (scrolls[0] + 1)
+        page.evaluate.side_effect = evaluate
+        def content():
+            items = [photo('REEL', media_type=2)]
+            if scrolls[0] >= 4:
+                items += [photo('ONE'), photo('TWO'), photo('THREE')]
+            return '<script type="application/json">' + json.dumps({'items': items}) + '</script>'
+        page.content.side_effect = content
+        browser = MagicMock()
+        browser.context.new_page.return_value = page
+        lead = collect_demo(browser, 'shop', count=3)
+        self.assertEqual(len(lead['photo_posts']), 3)
+        self.assertEqual(lead['demo_debug']['scrolls'], 4)
+        self.assertEqual(lead['demo_debug']['stop_reason'], 'enough_photos')
+        self.assertEqual(browser.context.new_page.call_count, 1)
+        page.close.assert_called_once()
+
+    def test_collection_stops_when_scrolling_no_longer_loads_data(self):
+        page = MagicMock()
+        page.url = 'https://www.instagram.com/shop/'
+        page.goto.return_value.status = 200
+        page.content.return_value = '<html></html>'
+        page.locator.return_value.evaluate_all.return_value = []
+        page.evaluate.return_value = 1000
+        browser = MagicMock()
+        browser.context.new_page.return_value = page
+        lead = collect_demo(browser, 'shop')
+        self.assertEqual(lead['photo_posts'], [])
+        self.assertEqual(lead['demo_debug']['scrolls'], 3)
+        self.assertEqual(lead['demo_debug']['stop_reason'], 'no_progress')
+
     def test_photos_exclude_video_reels_stories_unknown_and_foreign_owners(self):
         lead = {'username': 'shop'}
         apply_demo_payload(lead, {'items': [photo(), photo('VIDEO', media_type=2),

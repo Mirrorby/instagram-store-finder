@@ -8,6 +8,9 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description="Automatic discovery of potential Instagram stores")
     commands = parser.add_subparsers(dest="command", required=True)
+    desk = commands.add_parser('desk', help='Open a private local dashboard for accounts, demos and first-contact drafts')
+    desk.add_argument('--data', type=Path, default=Path('output/desk'))
+    desk.add_argument('--port', type=int, default=8765)
     run = commands.add_parser("run")
     run.add_argument("--queries", type=Path, default=Path("config/queries.json"))
     run.add_argument("--query-budget", type=int, default=14)
@@ -43,17 +46,29 @@ def main():
     demos.add_argument('--output', type=Path, default=Path('output/demos'))
     demos.add_argument('--limit', type=int, default=3)
     demos.add_argument('--products', type=int, default=6)
+    demos.add_argument('--max-scrolls', type=int, default=12, help='Maximum profile scrolls while looking for still photos (0–30)')
     demos.add_argument('--min-products', type=int, default=3)
-    demos.add_argument('--language', choices=['ru', 'en'], default='en')
+    demos.add_argument('--language', choices=['auto', 'ru', 'en', 'es', 'pt', 'fr', 'it', 'tr', 'pl', 'ja', 'de'], default='auto')
     demos.add_argument('--currency', choices=['BYN', 'RUB', 'KZT', 'USD', 'EUR'], default='USD')
     demos.add_argument('--theme', choices=['minimal', 'fashion', 'home', 'beauty'], default='minimal')
     demos.add_argument('--chrome-user-data-dir', type=Path)
     demos.add_argument('--cdp-endpoint')
     demos.add_argument('--publish', action='store_true', help='Create demo via Delokay API, archive photos and prepare (never send) first contact')
+    demos.add_argument('--update-demo-profile', action='store_true', help='Update language and contact settings of a previously verified demo')
     export = commands.add_parser("export")
     export.add_argument("archive", type=Path)
     export.add_argument("--output", type=Path, default=Path("output/export"))
     args = parser.parse_args()
+    if args.command == 'desk':
+        from .desk import serve
+        try:
+            if not 1024 <= args.port <= 65535:
+                raise ValueError('Порт: 1024–65535')
+            serve(args.data, args.port)
+            return 0
+        except (ValueError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.command == 'demos':
         from .personal_demos import run_demos
         try:
