@@ -1,8 +1,5 @@
 name: Cloud profile checks
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/cloud.yml']
   workflow_dispatch:
     inputs:
       limit:
@@ -13,9 +10,6 @@ on:
         description: 'Ignore the daily guard for a manual test'
         type: boolean
         default: false
-  schedule:
-    # Backup daily schedule: approximately 11:30 Europe/Minsk.
-    - cron: '30 8 * * *'
 permissions:
   contents: read
 concurrency:
