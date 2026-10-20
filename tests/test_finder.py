@@ -65,13 +65,30 @@ class FinderTests(unittest.TestCase):
             self.assertEqual(score(leads["example_shop"])["classification"], "needs_review")
 
     def test_language_rotation_and_wrap(self):
-        queries = load_queries(Path("config/queries.json"))
+        config = json.loads(Path("config/queries.json").read_text())
+        config["scope"]["enabled"] = False
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "queries.json"
+            path.write_text(json.dumps(config))
+            queries = load_queries(path)
         batch, cursor = select_queries(queries, 0, 14)
         self.assertEqual(len({q["language"] for q in batch}), 14)
         self.assertEqual(cursor, 14)
         wrapped, cursor = select_queries(queries, len(queries) - 1, 2)
         self.assertEqual(cursor, 1)
         self.assertEqual(wrapped[1], queries[0])
+
+    def test_temporary_russian_cis_search_scope(self):
+        queries = load_queries(Path("config/queries.json"))
+        self.assertEqual(len(queries), 50)
+        self.assertEqual({q["language"] for q in queries}, {"ru"})
+        self.assertEqual(queries[0]["country_hint"], "BY")
+        self.assertEqual({q["country_hint"] for q in queries},
+                         {"BY", "RU", "KZ", "KG", "AM", "AZ", "UZ", "TJ", "TM", "MD"})
+        for query in queries:
+            self.assertIn('-"Украина"', query["query"])
+            self.assertIn(' OR ', query["query"])
+        self.assertIn('"Минск"', queries[0]["query"])
 
     def test_persistence_is_encrypted_and_wrong_key_is_rejected(self):
         state = empty_state()
