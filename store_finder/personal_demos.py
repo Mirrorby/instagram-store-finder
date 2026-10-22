@@ -108,8 +108,11 @@ def archive_media(lead, directory):
         post['assets'] = [archive(url) for url in post['images']]
 
 
-def make_bundle(lead, language='auto', currency='USD', theme='minimal', minimum=3):
+def make_bundle(lead, language='auto', currency='USD', theme='auto', minimum=3):
     language = account_language(lead) if language == 'auto' else language
+    from .demo_theme import choose_theme
+    theme_choice = choose_theme(lead, theme)
+    theme = theme_choice['theme']
     issues = []
     if not lead.get('title') or lead['title'] == lead['username']:
         issues.append('Не получено название магазина')
@@ -117,17 +120,30 @@ def make_bundle(lead, language='auto', currency='USD', theme='minimal', minimum=
         issues.append('Не получено описание профиля')
     if not lead.get('logo_asset'):
         issues.append('Не сохранён логотип')
-    ready = [p for p in lead.get('photo_posts', []) if p.get('caption') and p.get('date') and p.get('assets')]
+    ready = [p for p in lead.get('photo_posts', []) if p.get('date') and p.get('assets')]
     if len(ready) < minimum:
-        issues.append(f'Нужно минимум {minimum} фотопубликации с датой и подписью; получено {len(ready)}')
+        issues.append(f'Нужно минимум {minimum} фотопубликации с датой; получено {len(ready)}')
     name = re.sub(r'\s*\(@[^)]+\).*$', '', lead.get('title', '')).strip()[:200] or lead['username']
     slug = 'ig-' + lead['username'].replace('.', '-') + '-' + hashlib.sha256(lead['username'].encode()).hexdigest()[:8]
     products = []
     sources = []
-    for post in ready:
-        lines = [line.strip() for line in post['caption'].splitlines() if line.strip() and not line.lstrip().startswith(('#', '@', 'http'))]
-        title = (lines[0] if lines else demo_text('Product', language))[:150]
-        products.append({'name': title, 'description': post['caption'],
+    for index, post in enumerate(ready, 1):
+        caption = post.get('caption') or ''
+        lines = [line.strip() for line in caption.splitlines() if line.strip() and not line.lstrip().startswith(('#', '@', 'http'))]
+        title = (lines[0] if lines else demo_text('Product', language) + ' ' + str(index))[:150]
+        description = caption if caption.strip() else {
+            'ru': 'Товар из нашей коллекции. Уточните подробности и наличие, связавшись с магазином.',
+            'en': 'An item from our collection. Contact the store for details and availability.',
+            'es': 'Un artículo de nuestra colección. Contacta con la tienda para consultar detalles y disponibilidad.',
+            'pt': 'Um item da nossa coleção. Entre em contato com a loja para saber mais e consultar a disponibilidade.',
+            'fr': 'Un article de notre collection. Contactez la boutique pour les détails et la disponibilité.',
+            'it': 'Un articolo della nostra collezione. Contatta il negozio per dettagli e disponibilità.',
+            'tr': 'Koleksiyonumuzdan bir ürün. Ayrıntılar ve stok durumu için mağazayla iletişime geçin.',
+            'pl': 'Produkt z naszej kolekcji. Skontaktuj się ze sklepem, aby poznać szczegóły i dostępność.',
+            'ja': 'コレクションの商品です。詳細や在庫については店舗にお問い合わせください。',
+            'de': 'Ein Artikel aus unserer Kollektion. Kontaktieren Sie den Shop für Details und Verfügbarkeit.',
+        }.get(language, 'An item from our collection. Contact the store for details and availability.')
+        products.append({'name': title, 'description': description,
             'category': demo_text('Catalog', language), 'brand': name[:100],
             'sku': 'IG-' + post['code'], 'prices': {currency: 0}, 'priceOnRequest': True,
             'availability': 'preorder', 'photos': [],
@@ -135,7 +151,7 @@ def make_bundle(lead, language='auto', currency='USD', theme='minimal', minimum=
         sources.append({'postUrl': post['url'], 'date': post['date'], 'assets': post['assets']})
     return {'schemaVersion': 1, 'username': lead['username'], 'collectedAt': now(),
         'status': 'needs_review' if issues else 'collected', 'issues': issues,
-        'source': lead, 'productSources': sources,
+        'source': {**lead, 'demo_theme': theme_choice}, 'themeSelection': theme_choice, 'productSources': sources,
         'store': {'name': name, 'slug': slug, 'status': 'demo', 'settings': {
             'language': language, 'theme': theme, 'description': lead.get('biography', '').strip()[:2000].strip(),
             **account_contacts(lead), 'currencies': [currency], 'heroTitle': name,

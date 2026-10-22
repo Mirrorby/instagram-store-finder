@@ -10,7 +10,7 @@ class InstagramRestricted(ValueError):
     pass
 
 
-def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
+def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None):
     from playwright.sync_api import Error
     lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
     restricted = [False]
@@ -54,6 +54,15 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
         html = visit(profile, lead['profile_url'])
         parse_profile_html(lead, html)
         apply_demo_html(lead, html)
+        if preflight is not None:
+            # First check the profile/site; only inspect dates if still needed.
+            if not preflight(lead, False):
+                return lead
+            browser.collect_posts(lead, profile, [], capture)
+            if restricted[0] or lead.get('post_access_restricted'):
+                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+            if not preflight(lead, True):
+                return lead
         if lead.get('is_private'):
             raise ValueError('Закрытый аккаунт: демо не создаётся')
         urls = []
@@ -65,7 +74,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
             hrefs = profile.locator('a[href*="/p/"]').evaluate_all('(links) => links.slice(0, 120).map(a => a.href)')
             urls = list(dict.fromkeys(urls + [post_url(href, username) for href in hrefs if post_url(href, username)]))
             apply_demo_html(lead, profile.content())
-            complete = [p for p in lead['photo_posts'] if p.get('caption') and p.get('date')]
+            complete = [p for p in lead['photo_posts'] if p.get('images') and p.get('date')]
             progress = (len(urls), len(lead['photo_posts']), profile.evaluate('document.documentElement.scrollHeight'))
             stale = stale + 1 if progress == previous else 0
             previous = progress
@@ -82,13 +91,13 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
         debug['stop_reason'] = 'enough_photos' if len(complete) >= count else ('no_progress' if stale >= 3 else 'collection_limit')
         urls = list(dict.fromkeys(urls + [p['url'] for p in lead.get('photo_posts', [])]))[:max_pages]
         for url in urls:
-            if sum(bool(p.get('caption') and p.get('date')) for p in lead['photo_posts']) >= count:
+            if sum(bool(p.get('images') and p.get('date')) for p in lead['photo_posts']) >= count:
                 break
             if restricted[0]:
                 raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             code = url.rstrip('/').rsplit('/', 1)[-1]
             known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
-            if known and known.get('caption') and known.get('date'):
+            if known and known.get('images') and known.get('date'):
                 continue
             page = browser.context.new_page()
             try:
@@ -105,7 +114,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12):
                     times = article.locator('time[datetime]').evaluate_all('(times) => times.map(t => ({date:t.getAttribute("datetime"),href:t.closest("a[href]")?.href||""}))')
                     date = next((t['date'] for t in times if post_url(t['href'], username) == url), None)
                     image = image_url(document.meta.get('og:image'))
-                    if image and caption and date:
+                    if image and date:
                         apply_demo_payload(lead, {'shortcode': code, 'owner': {'username': username},
                             'type': 'Image', 'display_url': image, 'caption': caption, 'timestamp': date})
             except Error:

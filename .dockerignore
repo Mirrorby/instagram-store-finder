@@ -1,0 +1,9 @@
+**
+!Dockerfile
+!requirements-local.txt
+!store_finder/
+!store_finder/**
+!config/
+!config/**
+**/__pycache__
+**/*.pyc
