@@ -77,10 +77,14 @@ def remember_photo(lead, item, inherited_owner=False):
     if not images:
         return False
     date = timestamp(item.get('taken_at', item.get('taken_at_timestamp', item.get('timestamp'))))
-    post = {'code': code, 'url': url, 'date': date, 'caption': caption_text(item),
+    child_page = (item.get('edge_sidecar_to_children') or {}).get('page_info') or {}
+    expected = item.get('carousel_media_count') or item.get('sidecar_count') or 0
+    complete = bool(children) and not child_page.get('has_next_page', False) and (not isinstance(expected, int) or not expected or len(children) >= expected)
+    post = {'carousel_complete': complete, 'code': code, 'url': url, 'date': date, 'caption': caption_text(item),
             'images': images, 'kind': kind, 'source': 'page_json'}
     known = {p['code']: p for p in lead.get('photo_posts', [])}
     old = known.get(code, {})
+    post['carousel_complete'] = post['carousel_complete'] or old.get('carousel_complete', False)
     post['caption'] = post['caption'] or old.get('caption', '')
     post['date'] = post['date'] or old.get('date')
     if len(old.get('images', [])) > len(images):

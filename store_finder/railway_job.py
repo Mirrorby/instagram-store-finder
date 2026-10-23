@@ -31,12 +31,13 @@ def run(directory):
                 lead = collect_demo(browser, request['username'], request['products'],
                                     max_pages=501 if request.get('period_days') else 18,
                                     max_scrolls=200 if request.get('period_days') else 12,
-                                    period_days=request.get('period_days'))
+                                    period_days=request.get('period_days'),
+                                    on_progress=lambda value: save(directory / 'progress.json', value))
             save(directory / 'source.json', lead)
             if request.get('period_days') and not lead.get('period', {}).get('complete'):
                 save(result, {'status': 'failed', 'error': 'period_collection_incomplete'})
                 return
-            archive_media(lead, directory)
+            archive_media(lead, directory, on_progress=lambda value: save(directory / 'progress.json', value))
             bundle = make_bundle(lead, request['language'], request['currency'], request['theme'], 1)
             # Separate drafts for separate jobs, even for the same Instagram account.
             bundle['store']['slug'] = 'ig-' + request['username'].replace('.', '-').replace('_', '-') + '-' + directory.name[:12]

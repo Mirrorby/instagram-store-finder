@@ -84,7 +84,7 @@ def download_image(url):
     return bytes(data), mime, ext
 
 
-def archive_media(lead, directory):
+def archive_media(lead, directory, on_progress=None):
     assets = directory / 'assets'
     assets.mkdir(exist_ok=True, mode=0o700)
     cached = {}
@@ -101,6 +101,8 @@ def archive_media(lead, directory):
             with os.fdopen(fd, 'wb') as stream:
                 stream.write(data)
         cached[url] = {'file': 'assets/' + filename, 'sha256': digest, 'mime': mime}
+        if on_progress:
+            on_progress({'phase': 'saving_photos', 'files': len(cached)})
         return cached[url]
 
     lead['logo_asset'] = archive(lead['logo_url']) if lead.get('logo_url') else None

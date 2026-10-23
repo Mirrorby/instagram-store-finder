@@ -104,8 +104,15 @@ class Queue:
             row = db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
         if row is None:
             return None
-        return {'id': row['id'], 'status': row['status'], 'createdAt': row['created'],
-                **(json.loads(row['result']) if row['result'] else {})}
+        value = {'id': row['id'], 'status': row['status'], 'createdAt': row['created'],
+                 **(json.loads(row['result']) if row['result'] else {})}
+        progress = self.root / 'jobs' / job_id / 'progress.json'
+        if row['status'] == 'running' and progress.is_file() and progress.stat().st_size < 8192:
+            try:
+                value['progress'] = json.loads(progress.read_text())
+            except (ValueError, OSError):
+                pass
+        return value
 
     def take(self):
         with self.connect() as db:

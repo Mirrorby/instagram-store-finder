@@ -37,3 +37,16 @@ class MonthlyImportTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+class CarouselCompletenessTests(unittest.TestCase):
+    def test_two_photo_carousel_does_not_require_a_post_revisit(self):
+        lead={'username':'shop','photo_posts':[]}
+        item={'__typename':'GraphSidecar','shortcode':'pair','owner':{'username':'shop'},'timestamp':datetime.now(timezone.utc).timestamp(),'carousel_media_count':2,'carousel_media':[{'__typename':'GraphImage','display_url':'https://scontent.cdninstagram.com/'+str(i)+'.jpg'} for i in range(2)]}
+        remember_photo(lead,item)
+        self.assertEqual(len(lead['photo_posts'][0]['images']),2)
+        self.assertTrue(lead['photo_posts'][0]['carousel_complete'])
+        item['shortcode']='partial'
+        item['carousel_media_count']=5
+        remember_photo(lead,item)
+        self.assertFalse(next(p for p in lead['photo_posts'] if p['code']=='partial')['carousel_complete'])

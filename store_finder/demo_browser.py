@@ -10,7 +10,7 @@ class InstagramRestricted(ValueError):
     pass
 
 
-def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None, period_days=None):
+def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None, period_days=None, on_progress=None):
     from playwright.sync_api import Error
     lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
     from datetime import datetime, timezone, timedelta
@@ -85,6 +85,8 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
             urls = list(dict.fromkeys(urls + [post_url(href, username) for href in hrefs if post_url(href, username)]))
             apply_demo_html(lead, profile.content())
             complete = [p for p in lead['photo_posts'] if p.get('images') and p.get('date')]
+            if on_progress:
+                on_progress({'phase': 'profile', 'posts': sum(in_period(p) for p in lead['photo_posts']), 'scanned': len(lead.get('_timeline_dates', {}))})
             progress = (len(urls), len(lead['photo_posts']), profile.evaluate('document.documentElement.scrollHeight'))
             stale = stale + 1 if progress == previous else 0
             previous = progress
@@ -104,6 +106,8 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
         debug['stop_reason'] = 'period_boundary' if boundary else 'enough_photos' if len(complete) >= count else ('no_progress' if stale >= 3 else 'collection_limit')
         urls = list(dict.fromkeys(urls + [p['url'] for p in lead.get('photo_posts', [])]))[:max_pages]
         for url in urls:
+            if on_progress:
+                on_progress({'phase': 'posts', 'posts': sum(in_period(p) for p in lead['photo_posts']), 'pages': debug['pages']})
             if not period_days and sum(bool(p.get('images') and p.get('date')) for p in lead['photo_posts']) >= count:
                 break
             if restricted[0]:
@@ -112,7 +116,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
             known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
             if period_days and known and known.get('date') and not in_period(known):
                 continue
-            if known and known.get('images') and known.get('date') and (not period_days or known.get('kind') != 'carousel' or len(known['images']) >= 8):
+            if known and known.get('images') and known.get('date') and (not period_days or known.get('kind') != 'carousel' or len(known['images']) >= 8 or known.get('carousel_complete')):
                 continue
             page = browser.context.new_page()
             try:
