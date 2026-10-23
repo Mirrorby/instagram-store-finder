@@ -96,6 +96,26 @@ class RailwayTests(unittest.TestCase):
         self.assertEqual(call('GET','/v1/jobs/'+job['id']+'/assets/../../request.json')[0],404)
 
 
+    def test_terminal_files_expire_without_losing_statistics_or_active_jobs(self):
+        import time
+        job_id=self.queue.enqueue('retention_request_123',self.request)
+        self.queue.take()
+        directory=Path(self.temp.name)/'jobs'/job_id
+        directory.mkdir()
+        (directory/'source.json').write_text('heavy private source')
+        self.queue.finish(job_id,{'status':'ready','products':71,'profile':{'description':'raw text'}})
+        active=self.queue.enqueue('retention_active_1234',self.request)
+        self.queue.take()
+        future=time.time()+8*86400
+        self.assertEqual(self.queue.cleanup(now=future),1)
+        self.assertFalse(directory.exists())
+        saved=self.queue.get(job_id)
+        self.assertEqual(saved['products'],71)
+        self.assertTrue(saved['archived'])
+        self.assertNotIn('profile',saved)
+        self.assertEqual(self.queue.get(active)['status'],'running')
+        self.assertEqual(self.queue.cleanup(now=future),0)
+
     def test_child_reuses_checkpoint_without_browser(self):
         directory = Path(self.temp.name) / 'jobs' / ('a' * 32)
         directory.mkdir()

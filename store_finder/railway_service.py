@@ -127,6 +127,38 @@ class Queue:
             db.execute('UPDATE jobs SET status=?,result=? WHERE id=?',
                        (result['status'], json.dumps(result), job_id))
 
+    def cleanup(self, now=None):
+        """Drop terminal job files after seven days; keep small outcome statistics."""
+        import shutil
+        cutoff = (now if now is not None else time.time()) - 7 * 86400
+        with self.connect() as db:
+            rows = db.execute("SELECT id,created,result FROM jobs WHERE status NOT IN ('queued','running') AND created<? AND COALESCE(json_extract(result,'$.archived'),0)=0 LIMIT 100", (cutoff,)).fetchall()
+        removed = 0
+        for row in rows:
+            if not re.fullmatch(r'[a-f0-9]{32}', row['id']):
+                continue
+            directory = self.root / 'jobs' / row['id']
+            if directory.is_symlink():
+                continue
+            result = json.loads(row['result'] or '{}')
+            if result.get('archived'):
+                continue
+            with self.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                current = db.execute('SELECT status FROM jobs WHERE id=?',(row['id'],)).fetchone()
+                if not current or current['status'] in ('queued','running'):
+                    continue
+                if directory.exists():
+                    # mtime tracks the final atomic artifact write, not merely queue creation.
+                    if directory.stat().st_mtime >= cutoff:
+                        continue
+                    shutil.rmtree(directory)
+                summary = {key: result[key] for key in ('status','kind','products','error','reason','httpStatus') if key in result}
+                summary['archived'] = True
+                db.execute('UPDATE jobs SET result=? WHERE id=?', (json.dumps(summary),row['id']))
+                removed += 1
+        return removed
+
     def retry(self, job_id):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -317,6 +349,14 @@ def main():
                     pass
                 stop.wait(10)
         threading.Thread(target=pump, daemon=True).start()
+    def maintain():
+        while not stop.is_set():
+            try:
+                queue.cleanup()
+            except (OSError, sqlite3.Error, ValueError):
+                print(json.dumps({'event': 'retention_retry'}), flush=True)
+            stop.wait(3600)
+    threading.Thread(target=maintain, daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), handler(queue, token)).serve_forever()
 
 
