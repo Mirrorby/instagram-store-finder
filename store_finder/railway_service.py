@@ -278,6 +278,23 @@ def main():
         thread.join()
         os._exit(1)
     threading.Thread(target=watch, daemon=True).start()
+    callback = os.environ.get('DELOKAY_CALLBACK_ORIGIN', '')
+    if callback:
+        parsed_callback = urlparse(callback)
+        if callback != 'https://catalog-factory-staging.nikita-karpof.workers.dev':
+            raise SystemExit('Invalid DELOKAY_CALLBACK_ORIGIN')
+        def pump():
+            import requests
+            while not stop.is_set():
+                try:
+                    response = requests.post(callback + '/api/import/tick',
+                        headers={'Authorization': 'Bearer ' + token},
+                        json={}, timeout=90, allow_redirects=False)
+                    response.close()
+                except requests.RequestException:
+                    pass
+                stop.wait(10)
+        threading.Thread(target=pump, daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), handler(queue, token)).serve_forever()
 
 
