@@ -216,6 +216,21 @@ def handler(queue, token):
                     return self.send_json(503, {'ok': False})
             if not self.authorized():
                 return self.send_json(401, {'error': 'unauthorized'})
+            asset = re.fullmatch(r'/v1/jobs/([a-f0-9]{32})/assets/([a-f0-9]{64})\.(jpg|png|webp)', self.path)
+            if asset:
+                path = queue.root / 'jobs' / asset[1] / 'assets' / (asset[2] + '.' + asset[3])
+                if not path.is_file() or path.is_symlink():
+                    return self.send_json(404, {'error': 'not_found'})
+                if path.stat().st_size > 3 * 1024 * 1024:
+                    return self.send_json(413, {'error': 'asset_too_large'})
+                data = path.read_bytes()
+                self.send_response(200)
+                self.send_header('Content-Type', {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}[asset[3]])
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'private, no-store')
+                self.end_headers()
+                self.wfile.write(data)
+                return
             artifact = re.fullmatch(r'/v1/jobs/([a-f0-9]{32})/bundle', self.path)
             if artifact:
                 path = queue.root / 'jobs' / artifact[1] / 'bundle.json'

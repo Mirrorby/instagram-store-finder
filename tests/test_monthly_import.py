@@ -50,3 +50,12 @@ class CarouselCompletenessTests(unittest.TestCase):
         item['carousel_media_count']=5
         remember_photo(lead,item)
         self.assertFalse(next(p for p in lead['photo_posts'] if p['code']=='partial')['carousel_complete'])
+
+class RestrictionClassificationTests(unittest.TestCase):
+    def test_only_content_failures_stop_collection(self):
+        from store_finder.demo_browser import content_endpoint
+        self.assertTrue(content_endpoint('https://www.instagram.com/graphql/query?secret=never-log'))
+        self.assertTrue(content_endpoint('https://www.instagram.com/api/v1/feed/user/123/'))
+        self.assertFalse(content_endpoint('https://www.instagram.com/api/v1/logging/client_event/'))
+        self.assertFalse(content_endpoint('https://www.instagram.com/api/v1/notifications/badge/'))
+        self.assertFalse(content_endpoint('https://evil.com/graphql/query'))

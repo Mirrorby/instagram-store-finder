@@ -7,7 +7,20 @@ from .demo_media import apply_demo_html, apply_demo_payload, image_url
 
 
 class InstagramRestricted(ValueError):
-    pass
+    def __init__(self, message, reason='access_restricted', status=None):
+        super().__init__(message)
+        self.reason = reason
+        self.status = status
+
+
+def content_endpoint(url):
+    """Ignore telemetry/notifications failures; never retain signed URLs."""
+    parsed = urlparse(url)
+    if parsed.hostname not in {'www.instagram.com', 'instagram.com'}:
+        return False
+    path = parsed.path.lower()
+    return '/graphql/' in path or any(x in path for x in ('/api/v1/feed/', '/api/v1/media/', '/api/v1/users/'))
+
 
 
 def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None, period_days=None, on_progress=None):
@@ -23,7 +36,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
     if period_days:
         lead.update(period_days=period_days, photo_post_limit=501)
     boundary = False
-    restricted = [False]
+    restricted = [None]
     debug = {'pages': 0, 'scrolls': 0, 'payloads': 0}
     lead['demo_debug'] = debug
 
@@ -31,10 +44,10 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
         parsed = urlparse(response.url)
         if parsed.hostname not in {'www.instagram.com', 'instagram.com'} or not any(x in parsed.path for x in ('/api/', '/graphql/')):
             return
-        if response.status in {401, 403, 429}:
-            restricted[0] = True
+        if response.status in {401, 403, 429} and content_endpoint(response.url):
+            restricted[0] = InstagramRestricted('Instagram ограничил загрузку публикаций.', 'content_http', response.status)
             return
-        if response.status != 200 or debug['payloads'] >= 100:
+        if response.status != 200 or not content_endpoint(response.url):
             return
         try:
             if int(response.headers.get('content-length', '0')) > 3_000_000:
@@ -53,8 +66,12 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
         debug['pages'] += 1
         response = page.goto(url, wait_until='domcontentloaded', timeout=30000)
         page.wait_for_timeout(2000)
-        if restricted[0] or (response and response.status in {401, 403, 429}) or any(x in page.url for x in ('/accounts/login', '/challenge/', '/checkpoint/')):
-            raise InstagramRestricted('Instagram ограничил доступ или требует вход. Партия остановлена.')
+        if restricted[0]:
+            raise restricted[0]
+        if any(x in page.url for x in ('/accounts/login', '/challenge/', '/checkpoint/')):
+            raise InstagramRestricted('Instagram требует вход или проверку.', 'login_or_challenge')
+        if response and response.status in {401, 403, 429}:
+            raise InstagramRestricted('Страница Instagram ограничена.', 'page_http', response.status)
         if response and response.status >= 400:
             raise ValueError('Страница Instagram недоступна')
         return page.content()
@@ -70,7 +87,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
                 return lead
             browser.collect_posts(lead, profile, [], capture)
             if restricted[0] or lead.get('post_access_restricted'):
-                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+                raise restricted[0] or InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             if not preflight(lead, True):
                 return lead
         if lead.get('is_private'):
@@ -99,7 +116,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
             profile.wait_for_timeout(1500)
             debug['scrolls'] += 1
             if restricted[0]:
-                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+                raise restricted[0] or InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
         # Capture JSON inserted after scrolling, too.
         apply_demo_html(lead, profile.content())
         debug['photo_links'] = len(urls)
@@ -111,7 +128,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
             if not period_days and sum(bool(p.get('images') and p.get('date')) for p in lead['photo_posts']) >= count:
                 break
             if restricted[0]:
-                raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
+                raise restricted[0] or InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             code = url.rstrip('/').rsplit('/', 1)[-1]
             known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
             if period_days and known and known.get('date') and not in_period(known):
@@ -142,7 +159,7 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
                 page.close()
         if period_days:
             lead['photo_posts'] = [p for p in lead['photo_posts'] if in_period(p)]
-            lead['period'] = {'days': period_days, 'since': cutoff, 'until': now.isoformat(), 'complete': bool(boundary or stale >= 3) and len(lead['photo_posts']) <= 500}
+            lead['period'] = {'days': period_days, 'since': cutoff, 'until': now.isoformat(), 'complete': bool(boundary or stale >= 3) and len(lead['photo_posts']) <= 500 and all(p.get('kind') != 'carousel' or len(p['images']) >= 8 or p.get('carousel_complete') for p in lead['photo_posts'])}
             lead.pop('_timeline_dates', None)
         lead['photo_posts'] = sorted(lead['photo_posts'], key=lambda p: p['date'] or '', reverse=True)[:count]
         return lead

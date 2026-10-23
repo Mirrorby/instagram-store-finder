@@ -59,7 +59,7 @@ class RailwayTests(unittest.TestCase):
             self.queue.enqueue('request_key_overflow', self.request)
 
     def test_http_auth_and_job_polling(self):
-        def call(method, path, data=None, auth=True):
+        def call(method, path, data=None, auth=True, raw=False):
             cls = handler(self.queue, 't' * 32)
             instance = cls.__new__(cls)
             instance.path = path
@@ -75,7 +75,7 @@ class RailwayTests(unittest.TestCase):
             instance.rfile, instance.wfile = io.BytesIO(body), io.BytesIO()
             getattr(instance, 'do_' + method)()
             header, response = instance.wfile.getvalue().split(b'\r\n\r\n', 1)
-            return int(header.split()[1]), json.loads(response)
+            return int(header.split()[1]), response if raw else json.loads(response)
 
         self.assertEqual(call('GET', '/health', auth=False)[0], 200)
         self.assertEqual(call('POST', '/v1/jobs', {'instagram': 'shop'}, auth=False)[0], 401)
@@ -85,6 +85,16 @@ class RailwayTests(unittest.TestCase):
         self.assertEqual(call('POST', '/v1/jobs', {'instagram': 'other'})[0], 409)
         self.assertEqual(call('POST', '/v1/jobs', ['invalid'])[0], 400)
         self.assertEqual(call('GET', '/v1/jobs/' + '0' * 32)[0], 404)
+        asset_dir=Path(self.temp.name) / 'jobs' / job['id'] / 'assets'
+        asset_dir.mkdir(parents=True)
+        filename='f'*64+'.jpg'
+        data=b'\xff\xd8\xffphoto'
+        (asset_dir / filename).write_bytes(data)
+        url='/v1/jobs/'+job['id']+'/assets/'+filename
+        self.assertEqual(call('GET',url,raw=True),(200,data))
+        self.assertEqual(call('GET',url,auth=False)[0],401)
+        self.assertEqual(call('GET','/v1/jobs/'+job['id']+'/assets/../../request.json')[0],404)
+
 
     def test_child_reuses_checkpoint_without_browser(self):
         directory = Path(self.temp.name) / 'jobs' / ('a' * 32)

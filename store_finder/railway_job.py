@@ -56,8 +56,9 @@ def run(directory):
         state = publish(bundle, directory, api)
         save(result, {'status': 'ready', 'store': state['store'],
                       'products': len(bundle['store']['products'])})
-    except InstagramRestricted:
-        save(result, {'status': 'restricted', 'error': 'instagram_access_restricted'})
+    except InstagramRestricted as error:
+        save(result, {'status': 'restricted', 'error': 'instagram_access_restricted',
+                      'reason': error.reason, 'httpStatus': error.status})
     except Exception:
         # Remote errors and browser traces may contain credentials or signed URLs.
         save(result, {'status': 'failed', 'error': 'import_failed'})
