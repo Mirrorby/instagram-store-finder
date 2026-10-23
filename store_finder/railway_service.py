@@ -31,7 +31,7 @@ def normalize(data):
         if set(data) - {'kind', 'url'}:
             raise ValueError('invalid_request')
         return {'kind': 'website', 'url': public_url(data.get('url'))}
-    if not isinstance(data, dict) or set(data) - {'instagram', 'theme', 'language', 'currency', 'products'}:
+    if not isinstance(data, dict) or set(data) - {'instagram', 'theme', 'language', 'currency', 'products', 'periodDays'}:
         raise ValueError('invalid_request')
     value = data.get('instagram', '')
     if not isinstance(value, str):
@@ -56,6 +56,12 @@ def normalize(data):
         raise ValueError('invalid_currency')
     if type(result['products']) is not int or not 1 <= result['products'] <= 6:
         raise ValueError('invalid_products')
+    if 'periodDays' in data:
+        days = data['periodDays']
+        if type(days) is not int or not 1 <= days <= 90:
+            raise ValueError('invalid_period')
+        result['period_days'] = days
+        result['products'] = 500
     return result
 
 
@@ -127,7 +133,7 @@ class Queue:
             db.execute("UPDATE jobs SET status='queued',result=NULL WHERE id=?", (job_id,))
 
 
-def execute_job(queue, row, timeout=900):
+def execute_job(queue, row, timeout=2400):
     from .personal_demos import save
     directory = queue.root / 'jobs' / row['id']
     directory.mkdir(exist_ok=True, mode=0o700)
@@ -208,7 +214,7 @@ def handler(queue, token):
                 path = queue.root / 'jobs' / artifact[1] / 'bundle.json'
                 if not path.is_file():
                     return self.send_json(404, {'error': 'not_found'})
-                if path.stat().st_size > 3_000_000:
+                if path.stat().st_size > 20_000_000:
                     return self.send_json(413, {'error': 'artifact_too_large'})
                 return self.send_json(200, json.loads(path.read_text()))
             match = re.fullmatch(r'/v1/jobs/([a-f0-9]{32})', self.path)

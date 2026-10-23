@@ -59,6 +59,9 @@ def remember_photo(lead, item, inherited_owner=False):
     url = post_url(str(item.get('url', '')), lead['username'])
     if not url and isinstance(code, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', code):
         url = f'https://www.instagram.com/p/{code}/'
+    date = timestamp(item.get('taken_at', item.get('taken_at_timestamp', item.get('timestamp'))))
+    if isinstance(code, str) and date and lead.get('period_days'):
+        lead.setdefault('_timeline_dates', {})[code] = {'date': date, 'pinned': bool(item.get('is_pinned') or item.get('pinned_for_users'))}
     if not url or '/reel/' in url or kind not in {'photo', 'carousel'}:
         return False
     code = url.rstrip('/').rsplit('/', 1)[-1]
@@ -83,7 +86,7 @@ def remember_photo(lead, item, inherited_owner=False):
     if len(old.get('images', [])) > len(images):
         post['images'] = old['images']
     known[code] = post
-    lead['photo_posts'] = sorted(known.values(), key=lambda p: p['date'] or '', reverse=True)[:60]
+    lead['photo_posts'] = sorted(known.values(), key=lambda p: p['date'] or '', reverse=True)[:lead.get('photo_post_limit', 60)]
     return True
 
 

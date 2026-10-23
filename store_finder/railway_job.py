@@ -29,8 +29,13 @@ def run(directory):
             session = directory.parent.parent / 'instagram-session.json'
             with BrowserProfiles(headless=True, storage_state=session if session.exists() else None) as browser:
                 lead = collect_demo(browser, request['username'], request['products'],
-                                    max_pages=18, max_scrolls=12)
+                                    max_pages=501 if request.get('period_days') else 18,
+                                    max_scrolls=200 if request.get('period_days') else 12,
+                                    period_days=request.get('period_days'))
             save(directory / 'source.json', lead)
+            if request.get('period_days') and not lead.get('period', {}).get('complete'):
+                save(result, {'status': 'failed', 'error': 'period_collection_incomplete'})
+                return
             archive_media(lead, directory)
             bundle = make_bundle(lead, request['language'], request['currency'], request['theme'], 1)
             # Separate drafts for separate jobs, even for the same Instagram account.

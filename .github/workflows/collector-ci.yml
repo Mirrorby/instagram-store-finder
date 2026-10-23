@@ -1,0 +1,17 @@
+name: Collector validation
+on:
+  push:
+    branches: [feat/railway-reference-collector]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-local.txt
+      - run: python -m compileall -q store_finder
+      - run: python -m unittest discover -s tests -p 'test_railway_service.py'
+      - run: python -m unittest discover -s tests -p 'test_monthly_import.py'

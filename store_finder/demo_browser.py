@@ -10,9 +10,19 @@ class InstagramRestricted(ValueError):
     pass
 
 
-def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None):
+def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None, period_days=None):
     from playwright.sync_api import Error
     lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
+    from datetime import datetime, timezone, timedelta
+    from .post_dates import timestamp
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=period_days)).isoformat() if period_days else None
+    def in_period(post):
+        date = timestamp(post.get('date'))
+        return bool(date and (not cutoff or cutoff <= date <= now.isoformat()))
+    if period_days:
+        lead.update(period_days=period_days, photo_post_limit=501)
+    boundary = False
     restricted = [False]
     debug = {'pages': 0, 'scrolls': 0, 'payloads': 0}
     lead['demo_debug'] = debug
@@ -78,7 +88,10 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
             progress = (len(urls), len(lead['photo_posts']), profile.evaluate('document.documentElement.scrollHeight'))
             stale = stale + 1 if progress == previous else 0
             previous = progress
-            if len(complete) >= count or len(urls) >= max_pages or scroll == max_scrolls or stale >= 3:
+            if period_days:
+                old = [v for v in lead.get('_timeline_dates', {}).values() if not v['pinned'] and v['date'] < cutoff]
+                boundary = len(old) >= 3 and len(lead.get('_timeline_dates', {})) >= 12
+            if boundary or (not period_days and len(complete) >= count) or len(urls) >= max_pages or scroll == max_scrolls or stale >= 3:
                 break
             profile.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
             profile.wait_for_timeout(1500)
@@ -88,16 +101,18 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
         # Capture JSON inserted after scrolling, too.
         apply_demo_html(lead, profile.content())
         debug['photo_links'] = len(urls)
-        debug['stop_reason'] = 'enough_photos' if len(complete) >= count else ('no_progress' if stale >= 3 else 'collection_limit')
+        debug['stop_reason'] = 'period_boundary' if boundary else 'enough_photos' if len(complete) >= count else ('no_progress' if stale >= 3 else 'collection_limit')
         urls = list(dict.fromkeys(urls + [p['url'] for p in lead.get('photo_posts', [])]))[:max_pages]
         for url in urls:
-            if sum(bool(p.get('images') and p.get('date')) for p in lead['photo_posts']) >= count:
+            if not period_days and sum(bool(p.get('images') and p.get('date')) for p in lead['photo_posts']) >= count:
                 break
             if restricted[0]:
                 raise InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             code = url.rstrip('/').rsplit('/', 1)[-1]
             known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
-            if known and known.get('images') and known.get('date'):
+            if period_days and known and known.get('date') and not in_period(known):
+                continue
+            if known and known.get('images') and known.get('date') and (not period_days or known.get('kind') != 'carousel' or len(known['images']) >= 8):
                 continue
             page = browser.context.new_page()
             try:
@@ -121,6 +136,10 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
                 debug['page_errors'] = debug.get('page_errors', 0) + 1
             finally:
                 page.close()
+        if period_days:
+            lead['photo_posts'] = [p for p in lead['photo_posts'] if in_period(p)]
+            lead['period'] = {'days': period_days, 'since': cutoff, 'until': now.isoformat(), 'complete': bool(boundary or stale >= 3) and len(lead['photo_posts']) <= 500}
+            lead.pop('_timeline_dates', None)
         lead['photo_posts'] = sorted(lead['photo_posts'], key=lambda p: p['date'] or '', reverse=True)[:count]
         return lead
     finally:

@@ -149,11 +149,15 @@ def make_bundle(lead, language='auto', currency='USD', theme='auto', minimum=3):
             'availability': 'preorder', 'photos': [],
             'variants': [{'label': demo_text('Confirm option', language), 'stock': None}]})
         sources.append({'postUrl': post['url'], 'date': post['date'], 'assets': post['assets']})
+    from .site_copy import product_copy, store_copy
+    for index, (item, post) in enumerate(zip(products, ready), 1):
+        item['name'], item['category'], item['description'] = product_copy(post.get('caption', ''), name, language, index)
+    description = store_copy(name, products, language)
     return {'schemaVersion': 1, 'username': lead['username'], 'collectedAt': now(),
         'status': 'needs_review' if issues else 'collected', 'issues': issues,
         'source': {**lead, 'demo_theme': theme_choice}, 'themeSelection': theme_choice, 'productSources': sources,
         'store': {'name': name, 'slug': slug, 'status': 'demo', 'settings': {
-            'language': language, 'theme': theme, 'description': lead.get('biography', '').strip()[:2000].strip(),
+            'language': language, 'theme': theme, 'description': description[:2000],
             **account_contacts(lead), 'currencies': [currency], 'heroTitle': name,
             'footerText': '© ' + name, 'accentColor': '#5865E8'}, 'products': products}}
 
