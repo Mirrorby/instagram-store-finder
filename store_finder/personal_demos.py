@@ -85,29 +85,32 @@ def download_image(url):
 
 
 def archive_media(lead, directory, on_progress=None):
+    """Archive unique images with bounded parallel downloads and preserve post order."""
+    from concurrent.futures import ThreadPoolExecutor
     assets = directory / 'assets'
     assets.mkdir(exist_ok=True, mode=0o700)
-    cached = {}
-
-    def archive(url):
-        if url in cached:
-            return cached[url]
-        data, mime, ext = download_image(url)
-        digest = hashlib.sha256(data).hexdigest()
-        filename = digest + '.' + ext
-        destination = assets / filename
-        if not destination.exists():
-            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, 'wb') as stream:
-                stream.write(data)
-        cached[url] = {'file': 'assets/' + filename, 'sha256': digest, 'mime': mime}
-        if on_progress:
-            on_progress({'phase': 'saving_photos', 'files': len(cached)})
-        return cached[url]
-
-    lead['logo_asset'] = archive(lead['logo_url']) if lead.get('logo_url') else None
+    urls = ([lead['logo_url']] if lead.get('logo_url') else [])
     for post in lead['photo_posts']:
-        post['assets'] = [archive(url) for url in post['images']]
+        urls.extend(post['images'])
+    urls = list(dict.fromkeys(urls))
+    cached = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for offset in range(0, len(urls), 4):
+            batch = urls[offset:offset + 4]
+            for url, (data, mime, ext) in zip(batch, pool.map(download_image, batch)):
+                digest = hashlib.sha256(data).hexdigest()
+                filename = digest + '.' + ext
+                destination = assets / filename
+                if not destination.exists():
+                    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(fd, 'wb') as stream:
+                        stream.write(data)
+                cached[url] = {'file': 'assets/' + filename, 'sha256': digest, 'mime': mime}
+                if on_progress:
+                    on_progress({'phase': 'saving_photos', 'files': len(cached), 'total': len(urls)})
+    lead['logo_asset'] = cached[lead['logo_url']] if lead.get('logo_url') else None
+    for post in lead['photo_posts']:
+        post['assets'] = [cached[url] for url in post['images']]
 
 
 def make_bundle(lead, language='auto', currency='USD', theme='auto', minimum=3):

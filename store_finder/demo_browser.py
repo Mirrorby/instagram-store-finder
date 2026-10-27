@@ -23,6 +23,14 @@ def content_endpoint(url):
 
 
 
+def period_complete(lead, boundary, stale, debug):
+    # A stalled page is not proof that the account has no more posts.
+    reached_end = boundary or (stale >= 3 and lead.get('_timeline_exhausted') is True)
+    return bool(reached_end and not debug.get('page_errors') and len(lead['photo_posts']) <= 500 and
+                all(p.get('kind') != 'carousel' or len(p['images']) >= 8 or p.get('carousel_complete')
+                    for p in lead['photo_posts']))
+
+
 def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, preflight=None, period_days=None, on_progress=None):
     from playwright.sync_api import Error
     lead = {'username': username, 'profile_url': f'https://www.instagram.com/{username}/', 'photo_posts': []}
@@ -131,6 +139,9 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
                 raise restricted[0] or InstagramRestricted('Instagram ограничил доступ. Партия остановлена.')
             code = url.rstrip('/').rsplit('/', 1)[-1]
             known = next((p for p in lead['photo_posts'] if p['code'] == code), None)
+            timeline = lead.get('_timeline_dates', {}).get(code) or {}
+            if period_days and (code in lead.get('_video_codes', set()) or (timeline.get('date') and (timeline['date'] < cutoff or timeline['date'] > now.isoformat()))):
+                continue
             if period_days and known and known.get('date') and not in_period(known):
                 continue
             if known and known.get('images') and known.get('date') and (not period_days or known.get('kind') != 'carousel' or len(known['images']) >= 8 or known.get('carousel_complete')):
@@ -159,8 +170,10 @@ def collect_demo(browser, username, count=6, max_pages=18, max_scrolls=12, prefl
                 page.close()
         if period_days:
             lead['photo_posts'] = [p for p in lead['photo_posts'] if in_period(p)]
-            lead['period'] = {'days': period_days, 'since': cutoff, 'until': now.isoformat(), 'complete': bool(boundary or stale >= 3) and len(lead['photo_posts']) <= 500 and all(p.get('kind') != 'carousel' or len(p['images']) >= 8 or p.get('carousel_complete') for p in lead['photo_posts'])}
+            lead['period'] = {'days': period_days, 'since': cutoff, 'until': now.isoformat(), 'complete': period_complete(lead, boundary, stale, debug)}
             lead.pop('_timeline_dates', None)
+            lead.pop('_timeline_exhausted', None)
+            lead.pop('_video_codes', None)
         lead['photo_posts'] = sorted(lead['photo_posts'], key=lambda p: p['date'] or '', reverse=True)[:count]
         return lead
     finally:

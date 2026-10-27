@@ -62,6 +62,8 @@ def remember_photo(lead, item, inherited_owner=False):
     date = timestamp(item.get('taken_at', item.get('taken_at_timestamp', item.get('timestamp'))))
     if isinstance(code, str) and date and lead.get('period_days'):
         lead.setdefault('_timeline_dates', {})[code] = {'date': date, 'pinned': bool(item.get('is_pinned') or item.get('pinned_for_users'))}
+    if kind == 'video' and isinstance(code, str) and lead.get('period_days'):
+        lead.setdefault('_video_codes', set()).add(code)
     if not url or '/reel/' in url or kind not in {'photo', 'carousel'}:
         return False
     code = url.rstrip('/').rsplit('/', 1)[-1]
@@ -102,6 +104,11 @@ def apply_demo_payload(lead, payload):
         if isinstance(item, dict):
             own_profile = str(item.get('username', '')).lower() == lead['username']
             if own_profile:
+                timeline = item.get('edge_owner_to_timeline_media')
+                if isinstance(timeline, dict):
+                    info = timeline.get('page_info')
+                    if isinstance(info, dict) and type(info.get('has_next_page')) is bool:
+                        lead['_timeline_exhausted'] = not info['has_next_page']
                 apply_profile_record(lead, item, 'chromium')
                 avatar = item.get('profile_pic_url_hd') or item.get('profilePicUrlHD') or item.get('profile_pic_url') or item.get('profilePicUrl')
                 avatar = avatar or (item.get('hd_profile_pic_url_info') or {}).get('url')

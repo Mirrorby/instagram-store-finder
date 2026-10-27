@@ -59,3 +59,42 @@ class RestrictionClassificationTests(unittest.TestCase):
         self.assertFalse(content_endpoint('https://www.instagram.com/api/v1/logging/client_event/'))
         self.assertFalse(content_endpoint('https://www.instagram.com/api/v1/notifications/badge/'))
         self.assertFalse(content_endpoint('https://evil.com/graphql/query'))
+
+class TimelineCompletenessTests(unittest.TestCase):
+    def test_video_posts_are_remembered_for_skipping(self):
+        from store_finder.demo_media import remember_photo
+        lead={'username':'shop','photo_posts':[],'period_days':30}
+        item={'__typename':'GraphVideo','shortcode':'video123','owner':{'username':'shop'},'timestamp':datetime.now(timezone.utc).timestamp()}
+        remember_photo(lead,item)
+        self.assertIn('video123',lead['_video_codes'])
+        self.assertEqual(lead['photo_posts'],[])
+
+    def test_stalled_page_and_post_errors_do_not_certify_a_complete_month(self):
+        from store_finder.demo_browser import period_complete
+        from store_finder.demo_media import apply_demo_payload
+        lead={'username':'shop','photo_posts':[],'period_days':30}
+        self.assertFalse(period_complete(lead,False,3,{}))
+        apply_demo_payload(lead,{'username':'shop','edge_owner_to_timeline_media':{'page_info':{'has_next_page':False}}})
+        self.assertTrue(period_complete(lead,False,3,{}))
+        self.assertFalse(period_complete(lead,True,0,{'page_errors':1}))
+        lead['photo_posts']=[{'kind':'carousel','images':['one'],'carousel_complete':False}]
+        self.assertFalse(period_complete(lead,True,0,{}))
+
+class PhotoArchiveTests(unittest.TestCase):
+    def test_archive_deduplicates_and_preserves_carousel_order(self):
+        import tempfile
+        from pathlib import Path
+        from store_finder.personal_demos import archive_media
+        lead={'logo_url':'logo','photo_posts':[{'images':['first','second','first']},{'images':['second']}]}
+        seen=[]
+        def download(url):
+            seen.append(url)
+            return (url.encode(), 'image/jpeg', 'jpg')
+        progress=[]
+        with tempfile.TemporaryDirectory() as directory, patch('store_finder.personal_demos.download_image',side_effect=download):
+            archive_media(lead,Path(directory),on_progress=progress.append)
+            self.assertEqual(sorted(seen),['first','logo','second'])
+            self.assertEqual(lead['photo_posts'][0]['assets'][0],lead['photo_posts'][0]['assets'][2])
+            self.assertEqual(lead['photo_posts'][0]['assets'][1],lead['photo_posts'][1]['assets'][0])
+            self.assertEqual(progress[-1]['total'],3)
+            self.assertTrue(all((Path(directory)/a['file']).is_file() for p in lead['photo_posts'] for a in p['assets']))
