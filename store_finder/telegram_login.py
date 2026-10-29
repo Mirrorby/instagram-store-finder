@@ -8,27 +8,94 @@ import re
 import sys
 
 
-async def authorize_qr(client):
-    import qrcode
+async def wait_for_qr(client, publish, max_refreshes=20):
     from telethon.errors import SessionPasswordNeededError
-    auth = Path('.auth')
-    auth.mkdir(mode=0o700, exist_ok=True)
-    path = auth / 'telegram-login.png'
     qr = await client.qr_login()
-    qrcode.make(qr.url).save(path)
-    os.chmod(path, 0o600)
-    print('Откройте .auth/telegram-login.png в файловой панели Codespaces.')
-    print('На телефоне: Telegram → Настройки → Устройства → Подключить устройство.')
-    print('Отсканируйте QR. Не публикуйте изображение. Ожидание: до 120 секунд.')
-    try:
+    for attempt in range(max_refreshes):
+        publish(qr.url)
         try:
-            await qr.wait(timeout=120)
+            # Default timeout is the server token expiration, not a fixed 120s.
+            await qr.wait()
+            return
         except SessionPasswordNeededError:
             await client.sign_in(password=getpass.getpass('Пароль двухэтапной защиты Telegram: '))
+            return
         except asyncio.TimeoutError:
-            raise ValueError('QR истёк или не подтверждён. Запустите команду заново для нового QR.')
+            if attempt + 1 == max_refreshes:
+                raise ValueError('Время входа закончилось. Запустите команду заново.')
+            await qr.recreate()
+            print('QR обновлён. Сканируйте изображение на странице входа.')
+
+
+async def authorize_qr(client):
+    import io
+    import qrcode
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    state = {'png': b'', 'status': 'waiting'}
+    page = b'''<!doctype html><html lang="ru"><meta charset="utf-8">
+<meta name="referrer" content="no-referrer"><title>Telegram login</title>
+<style>body{font:18px system-ui;text-align:center;background:#f7f8fc;color:#253047}
+main{max-width:620px;margin:40px auto;padding:24px;background:white;border-radius:18px}
+img{width:320px;height:320px;image-rendering:pixelated}</style><main>
+<h1>Telegram</h1><p id="status">Scan in Telegram: Settings - Devices - Link Desktop Device</p>
+<img id="qr" alt="Telegram login QR"><p>QR refreshes automatically. Keep this page private.</p>
+</main><script>async function refresh(){try{
+const r=await fetch('/status',{cache:'no-store'});const s=await r.text();
+if(s!=='waiting'){document.getElementById('qr').hidden=true;
+document.getElementById('status').textContent=s==='success'?'Login completed. Return to terminal.':'Login stopped. Return to terminal.';return;}
+document.getElementById('qr').src='/qr.png?t='+Date.now();
+}catch(e){}setTimeout(refresh,1000);}refresh();</script></html>'''
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            route = self.path.split('?', 1)[0]
+            if route == '/':
+                payload, content_type = page, 'text/html; charset=utf-8'
+            elif route == '/qr.png':
+                payload, content_type = state['png'], 'image/png'
+            elif route == '/status':
+                payload, content_type = state['status'].encode(), 'text/plain'
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Cache-Control', 'no-store, max-age=0')
+            self.send_header('Content-Length', str(len(payload)))
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            try:
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def log_message(self, *args):
+            pass  # Do not log login-token requests.
+
+    server = ThreadingHTTPServer(('127.0.0.1', 8766), Handler)
+    server.daemon_threads = True
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print('Откройте вкладку ПОРТЫ в Codespaces, добавьте порт 8766, видимость PRIVATE.')
+    print('Нажмите значок глобуса у порта 8766: откроется страница с обновляемым QR.')
+    print('На телефоне: Telegram → Настройки → Устройства → Подключить устройство.')
+    print('Изображение обновляется автоматически. Не открывайте старый telegram-login.png.')
+
+    def publish(url):
+        buffer = io.BytesIO()
+        qrcode.make(url).save(buffer, format='PNG')
+        state['png'] = buffer.getvalue()
+
+    try:
+        await wait_for_qr(client, publish)
+        state['status'] = 'success'
     finally:
-        path.unlink(missing_ok=True)
+        state['png'] = b''
+        if state['status'] != 'success':
+            state['status'] = 'stopped'
+        await asyncio.to_thread(server.shutdown)
+        server.server_close()
 
 
 async def authorize_phone(client):

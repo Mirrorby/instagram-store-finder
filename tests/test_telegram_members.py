@@ -1,8 +1,6 @@
 import unittest
 import os
 import asyncio
-import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, AsyncMock
 from store_finder.telegram_members import group_reference, tab_title, plan_rows, HEADERS, sync_sheet, MARKER, settings, main
@@ -117,39 +115,49 @@ class TelegramMembersTests(unittest.TestCase):
 
 class TelegramQrTests(unittest.IsolatedAsyncioTestCase):
     async def check_qr(self, mode):
-        from store_finder.telegram_login import authorize_qr
+        from store_finder.telegram_login import wait_for_qr
         class PasswordNeeded(Exception):
             pass
-        side_effect = {'success': None, 'timeout': asyncio.TimeoutError(), '2fa': PasswordNeeded()}[mode]
-        qr = SimpleNamespace(url='tg://login?token=test', wait=AsyncMock(side_effect=side_effect))
+        side_effect = {'success': [None], 'timeout': [asyncio.TimeoutError()],
+                       '2fa': [PasswordNeeded()], 'refresh': [asyncio.TimeoutError(), None]}[mode]
+        qr = SimpleNamespace(url='tg://login?token=first', wait=AsyncMock(side_effect=side_effect))
+        async def recreate():
+            qr.url = 'tg://login?token=second'
+        qr.recreate = AsyncMock(side_effect=recreate)
         client = SimpleNamespace(qr_login=AsyncMock(return_value=qr), sign_in=AsyncMock())
-        image = SimpleNamespace(save=lambda path: Path(path).write_bytes(b'fake-png'))
-        modules = {'qrcode': SimpleNamespace(make=lambda url: image),
-                   'telethon.errors': SimpleNamespace(SessionPasswordNeededError=PasswordNeeded)}
-        with tempfile.TemporaryDirectory() as directory:
-            auth = Path(directory) / '.auth'
-            with patch.dict('sys.modules', modules), patch('store_finder.telegram_login.Path', return_value=auth), \
-                    patch('getpass.getpass', return_value='test-password'):
-                if mode == 'timeout':
-                    with self.assertRaisesRegex(ValueError, 'QR истёк'):
-                        await authorize_qr(client)
-                else:
-                    await authorize_qr(client)
-            self.assertFalse((auth / 'telegram-login.png').exists())
-            qr.wait.assert_awaited_once_with(timeout=120)
-            if mode == '2fa':
-                client.sign_in.assert_awaited_once_with(password='test-password')
+        modules = {'telethon.errors': SimpleNamespace(SessionPasswordNeededError=PasswordNeeded)}
+        published = []
+        with patch.dict('sys.modules', modules), patch('getpass.getpass', return_value='test-password'):
+            if mode == 'timeout':
+                with self.assertRaisesRegex(ValueError, 'Время входа закончилось'):
+                    await wait_for_qr(client, published.append, max_refreshes=1)
             else:
-                client.sign_in.assert_not_awaited()
+                await wait_for_qr(client, published.append)
+        # Never override the server's actual expiration with a longer timeout.
+        for call in qr.wait.await_args_list:
+            self.assertEqual(call.args, ())
+            self.assertEqual(call.kwargs, {})
+        if mode == 'refresh':
+            qr.recreate.assert_awaited_once()
+            self.assertEqual(published, ['tg://login?token=first', 'tg://login?token=second'])
+        else:
+            qr.recreate.assert_not_awaited()
+        if mode == '2fa':
+            client.sign_in.assert_awaited_once_with(password='test-password')
+        else:
+            client.sign_in.assert_not_awaited()
 
-    async def test_qr_success_removes_token_image(self):
+    async def test_qr_success(self):
         await self.check_qr('success')
 
-    async def test_qr_timeout_removes_token_image(self):
+    async def test_qr_stops_after_refresh_limit(self):
         await self.check_qr('timeout')
 
-    async def test_qr_two_factor_password_and_cleanup(self):
+    async def test_qr_two_factor_password(self):
         await self.check_qr('2fa')
+
+    async def test_qr_refreshes_expired_server_token(self):
+        await self.check_qr('refresh')
 
 
 if __name__ == '__main__':
