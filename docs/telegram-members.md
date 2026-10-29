@@ -31,11 +31,17 @@ Codespaces — отдельный сервис с собственными кв�
 
    ```sh
    python -m pip install -r requirements-telegram.txt
-   python -m store_finder.telegram_login
+   python -m store_finder.telegram_login --qr
    ```
 
-3. Введите api_id, api_hash, номер телефона, код Telegram и пароль 2FA,
-   если он включён. Вводите их только в личном терминале Codespaces.
+3. Введите api_id и api_hash. Откройте `.auth/telegram-login.png` в файловой
+   панели Codespaces. На телефоне: Telegram → Настройки → Устройства →
+   Подключить устройство, отсканируйте QR. При включённой 2FA введите её
+   пароль в терминале. Код в сообщении не требуется. QR удаляется после
+   завершения/истечения. Если истёк — запустите команду заново.
+   Для входа по номеру используйте команду без `--qr`: она покажет
+   способ доставки кода, сообщённый сервером. Не повторяйте запросы подряд
+   при FloodWait/PhoneNumberFlood. Вводите секреты только в личном терминале.
 4. В файловой панели Codespaces откройте файлы в `.auth/`:
    `TELEGRAM_API_ID.txt`, `TELEGRAM_API_HASH.txt`, `TELEGRAM_SESSION.txt`.
    Каждый файл содержит значение соответствующего Repository secret.

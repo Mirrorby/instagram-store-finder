@@ -1,7 +1,10 @@
 import unittest
 import os
+import asyncio
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from store_finder.telegram_members import group_reference, tab_title, plan_rows, HEADERS, sync_sheet, MARKER, settings, main
 
 
@@ -110,6 +113,43 @@ class TelegramMembersTests(unittest.TestCase):
         self.assertEqual(options['value_input_option'], 'RAW')
         self.assertEqual(writes[0]['range'], 'A2:L2')
         self.assertEqual(writes[0]['values'][0][9], 'first')
+
+
+class TelegramQrTests(unittest.IsolatedAsyncioTestCase):
+    async def check_qr(self, mode):
+        from store_finder.telegram_login import authorize_qr
+        class PasswordNeeded(Exception):
+            pass
+        side_effect = {'success': None, 'timeout': asyncio.TimeoutError(), '2fa': PasswordNeeded()}[mode]
+        qr = SimpleNamespace(url='tg://login?token=test', wait=AsyncMock(side_effect=side_effect))
+        client = SimpleNamespace(qr_login=AsyncMock(return_value=qr), sign_in=AsyncMock())
+        image = SimpleNamespace(save=lambda path: Path(path).write_bytes(b'fake-png'))
+        modules = {'qrcode': SimpleNamespace(make=lambda url: image),
+                   'telethon.errors': SimpleNamespace(SessionPasswordNeededError=PasswordNeeded)}
+        with tempfile.TemporaryDirectory() as directory:
+            auth = Path(directory) / '.auth'
+            with patch.dict('sys.modules', modules), patch('store_finder.telegram_login.Path', return_value=auth), \
+                    patch('getpass.getpass', return_value='test-password'):
+                if mode == 'timeout':
+                    with self.assertRaisesRegex(ValueError, 'QR истёк'):
+                        await authorize_qr(client)
+                else:
+                    await authorize_qr(client)
+            self.assertFalse((auth / 'telegram-login.png').exists())
+            qr.wait.assert_awaited_once_with(timeout=120)
+            if mode == '2fa':
+                client.sign_in.assert_awaited_once_with(password='test-password')
+            else:
+                client.sign_in.assert_not_awaited()
+
+    async def test_qr_success_removes_token_image(self):
+        await self.check_qr('success')
+
+    async def test_qr_timeout_removes_token_image(self):
+        await self.check_qr('timeout')
+
+    async def test_qr_two_factor_password_and_cleanup(self):
+        await self.check_qr('2fa')
 
 
 if __name__ == '__main__':
