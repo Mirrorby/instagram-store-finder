@@ -2,11 +2,33 @@ import unittest
 import os
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from store_finder.telegram_members import group_reference, tab_title, plan_rows, HEADERS, sync_sheet, MARKER, settings, main
 
 
 class TelegramMembersTests(unittest.TestCase):
+    def test_first_sync_initializes_gspread_empty_nested_header(self):
+        sheet = MagicMock(id=123, row_count=1000)
+        sheet.get.side_effect = [[[]], [[]], [HEADERS]]
+        book = MagicMock(id='book')
+        members = [{'id': n, 'name': f'User {n}'} for n in range(1, 316)]
+        with patch('store_finder.telegram_members.group_sheet', return_value=sheet):
+            result = sync_sheet(book, -1001, 'YARDSALE.MD Chat', '', members, 'now', '315/315')
+        self.assertEqual(result['added'], 315)
+        sheet.update.assert_called_once_with(range_name='A1:R1', values=[HEADERS], value_input_option='RAW')
+        updates = sheet.batch_update.call_args.args[0]
+        self.assertEqual(updates[0]['range'], 'A2:R316')
+        self.assertEqual(len(updates[0]['values']), 315)
+
+    def test_blank_header_does_not_relabel_existing_data(self):
+        sheet = MagicMock(id=123, row_count=1000)
+        sheet.get.side_effect = [[[]], [['42', 'Existing contact']]]
+        with patch('store_finder.telegram_members.group_sheet', return_value=sheet):
+            with self.assertRaisesRegex(ValueError, 'данные без заголовков'):
+                sync_sheet(MagicMock(), -1001, 'Chat', '', [], 'now', 'partial')
+        sheet.update.assert_not_called()
+        sheet.batch_update.assert_not_called()
+
     def test_actions_missing_secrets_fail_without_prompts_or_auth_files(self):
         args = SimpleNamespace(non_interactive=True, spreadsheet=None)
         with patch.dict(os.environ, {}, clear=True), patch('builtins.input', side_effect=AssertionError('No input')):

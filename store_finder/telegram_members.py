@@ -142,8 +142,12 @@ def group_sheet(book, group_id, title):
 
 def sync_sheet(book, group_id, title, group_url, members, now, coverage):
     sheet = group_sheet(book, group_id, title)
-    header = sheet.get('A1:R1')
-    if header and header[0] != HEADERS:
+    header_result = sheet.get('A1:R1')
+    # gspread can return [[]] for an empty range; the outer list is truthy.
+    header = list(header_result[0]) if header_result else []
+    if not any(value != '' for value in header):
+        header = []
+    if header and header != HEADERS:
         raise ValueError('Заголовки Telegram-листа изменены. Запись остановлена.')
     existing = []
     for start in range(2, sheet.row_count + 1, 1000):
@@ -153,6 +157,8 @@ def sync_sheet(book, group_id, title, group_url, members, now, coverage):
         existing.extend([[] for _ in range(end-start+1-len(block))])
     while existing and not existing[-1]:
         existing.pop()
+    if not header and any(any(value != '' for value in row) for row in existing):
+        raise ValueError('Лист содержит данные без заголовков. Запись остановлена.')
     updates, updated, added = plan_rows(existing, members, group_id, group_url, now, coverage)
     needed = len(existing) + added + 1
     if needed > sheet.row_count:
