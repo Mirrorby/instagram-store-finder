@@ -224,6 +224,20 @@ async def collect(client, reference):
 
 
 def settings(args):
+    if args.non_interactive:
+        required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GOOGLE_SERVICE_ACCOUNT_JSON']
+        missing = [name for name in required if not os.environ.get(name, '').strip()]
+        if missing:
+            raise ValueError('Добавьте GitHub Secrets: ' + ', '.join(missing))
+        api_id = os.environ['TELEGRAM_API_ID'].strip()
+        api_hash = os.environ['TELEGRAM_API_HASH'].strip()
+        if not api_id.isdigit() or int(api_id) <= 0 or not re.fullmatch(r'[a-fA-F0-9]{32}', api_hash):
+            raise ValueError('Некорректный TELEGRAM_API_ID или TELEGRAM_API_HASH.')
+        from .sheets import configured_sheet
+        sheet_id = args.spreadsheet or os.environ.get('GOOGLE_SHEET_ID', '').strip() or configured_sheet()
+        if not sheet_id:
+            raise ValueError('Не настроен ID Google-таблицы.')
+        return int(api_id), api_hash, None, sheet_id
     AUTH.mkdir(mode=0o700, exist_ok=True)
     os.chmod(AUTH, 0o700)
     path = AUTH / 'telegram-config.json'
@@ -255,16 +269,27 @@ def settings(args):
 
 async def run(args):
     from telethon import TelegramClient
+    from telethon.sessions import StringSession
     from telethon.errors import ChatAdminRequiredError, FloodWaitError, RPCError
     references = [group_reference(value) for value in args.groups]
     api_id, api_hash, credentials, sheet_id = settings(args)
     # Check Sheets credentials before asking for a Telegram login.
     book = open_book(credentials, sheet_id)
-    client = TelegramClient(str(AUTH / 'telegram-members'), api_id, api_hash,
+    session = (StringSession(os.environ['TELEGRAM_SESSION'].strip()) if args.non_interactive else
+               str(AUTH / 'telegram-members'))
+    client = TelegramClient(session, api_id, api_hash,
                             flood_sleep_threshold=0)
     failed = False
     try:
-        await client.start()
+        if args.non_interactive:
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise ValueError('Сессия Telegram отозвана или истекла. Создайте новую и обновите TELEGRAM_SESSION.')
+            me = await client.get_me()
+            if me.bot:
+                raise ValueError('Нужна сессия пользовательского аккаунта Telegram, не бота.')
+        else:
+            await client.start()
         for reference in references:
             try:
                 group_id, title, url, members, coverage = await collect(client, reference)
@@ -272,6 +297,11 @@ async def run(args):
                 result = sync_sheet(book, group_id, title, url, members,
                   datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M:%S'), coverage)
                 print(f"Добавлено: {result['added']}; обновлено: {result['updated']}\n{result['url']}")
+                if os.environ.get('GITHUB_STEP_SUMMARY'):
+                    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as handle:
+                        handle.write(f"\nПолучено: {len(members)}. Добавлено: {result['added']}; "
+                                     f"обновлено: {result['updated']}.\n\n{coverage}\n\n"
+                                     f"[Открыть лист]({result['url']})\n")
             except FloodWaitError as exc:
                 print(f'Telegram просит подождать {exc.seconds} сек. Сбор остановлен; повторите позже.', file=sys.stderr)
                 return 2
@@ -286,8 +316,9 @@ async def run(args):
                 print(str(exc), file=sys.stderr)
     finally:
         await client.disconnect()
-        for session in AUTH.glob('telegram-members.session*'):
-            os.chmod(session, 0o600)
+        if not args.non_interactive:
+            for session_file in AUTH.glob('telegram-members.session*'):
+                os.chmod(session_file, 0o600)
     return 2 if failed else 0
 
 
@@ -296,11 +327,27 @@ def main():
     parser.add_argument('groups', nargs='*', help='@username или https://t.me/группа; можно несколько')
     parser.add_argument('--credentials', help='Путь к JSON-ключу Google (не содержимое ключа)')
     parser.add_argument('--spreadsheet', help='ID другой Google-таблицы')
+    parser.add_argument('--non-interactive', action='store_true',
+                        help='GitHub Actions: только Secrets, без ввода и файлов сессии')
     args = parser.parse_args()
-    if not args.groups:
+    args.non_interactive = args.non_interactive or os.environ.get('GITHUB_ACTIONS') == 'true'
+    if not args.groups and args.non_interactive:
+        args.groups = [x for x in re.split(r'[\s,]+', os.environ.get('TELEGRAM_GROUPS', '').strip()) if x]
+    if not args.groups and not args.non_interactive:
         args.groups = input('Ссылки на группы через пробел: ').split()
     if not args.groups:
         parser.error('Укажите хотя бы одну группу.')
+    if len(args.groups) > 20:
+        parser.error('Не более 20 групп за один запуск.')
+    if args.non_interactive:
+        try:
+            return asyncio.run(run(args))
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f'Ошибка ({type(exc).__name__}). Проверьте Secrets и доступ аккаунта.', file=sys.stderr)
+            return 2
     # Session keys must never be accessible to other local users.
     os.umask(0o077)
     import fcntl

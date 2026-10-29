@@ -1,8 +1,39 @@
 import unittest
-from store_finder.telegram_members import group_reference, tab_title, plan_rows, HEADERS, sync_sheet, MARKER
+import os
+from types import SimpleNamespace
+from unittest.mock import patch
+from store_finder.telegram_members import group_reference, tab_title, plan_rows, HEADERS, sync_sheet, MARKER, settings, main
 
 
 class TelegramMembersTests(unittest.TestCase):
+    def test_actions_missing_secrets_fail_without_prompts_or_auth_files(self):
+        args = SimpleNamespace(non_interactive=True, spreadsheet=None)
+        with patch.dict(os.environ, {}, clear=True), patch('builtins.input', side_effect=AssertionError('No input')):
+            with self.assertRaisesRegex(ValueError, 'TELEGRAM_SESSION'):
+                settings(args)
+
+    def test_actions_config_uses_env_without_auth_files(self):
+        args = SimpleNamespace(non_interactive=True, spreadsheet='explicit-book')
+        env = {'TELEGRAM_API_ID': '12345', 'TELEGRAM_API_HASH': 'a' * 32,
+               'TELEGRAM_SESSION': 'secret-session', 'GOOGLE_SERVICE_ACCOUNT_JSON': '{}'}
+        with patch.dict(os.environ, env, clear=True), patch('pathlib.Path.mkdir', side_effect=AssertionError('No local state')):
+            self.assertEqual(settings(args), (12345, 'a' * 32, None, 'explicit-book'))
+
+    def test_workflow_group_input_is_data_not_shell(self):
+        captured = []
+        async def fake_run(args):
+            captured.extend(args.groups)
+            return 0
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'TELEGRAM_GROUPS': '@yardsalemd,\nhttps://t.me/example'}, clear=True), \
+                patch('sys.argv', ['collector']), patch('store_finder.telegram_members.run', fake_run):
+            self.assertEqual(main(), 0)
+        self.assertEqual(captured, ['@yardsalemd', 'https://t.me/example'])
+
+    def test_login_refuses_actions_before_loading_telethon(self):
+        from store_finder.telegram_login import main as login_main
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}):
+            self.assertEqual(login_main(), 2)
+
     def test_group_links(self):
         for source in ['@yardsalemd', 'https://t.me/yardsalemd', 't.me/yardsalemd/']:
             self.assertEqual(group_reference(source), '@yardsalemd')
