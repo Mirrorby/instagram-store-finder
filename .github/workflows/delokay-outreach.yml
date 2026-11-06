@@ -16,10 +16,10 @@ permissions:
 
 jobs:
   outreach:
-    uses: Mirrorby/delokay-outreach/.github/workflows/outreach.yml@cca1a6040d3c99d2bb0317a0885c23d72c3bd670
+    uses: Mirrorby/delokay-outreach/.github/workflows/outreach.yml@8fdbb9749281ccedb46284a5dd32cd10248c4c37
     with:
       mode: ${{ github.event_name == 'schedule' && 'send' || inputs.mode }}
-      source_ref: cca1a6040d3c99d2bb0317a0885c23d72c3bd670
+      source_ref: 8fdbb9749281ccedb46284a5dd32cd10248c4c37
     secrets:
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
