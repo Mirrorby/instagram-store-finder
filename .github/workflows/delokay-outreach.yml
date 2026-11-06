@@ -1,8 +1,6 @@
 name: Delokay first message
 
 on:
-  schedule:
-    - cron: '7,17,27,37,47,57 6-16 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -18,7 +16,7 @@ jobs:
   outreach:
     uses: Mirrorby/delokay-outreach/.github/workflows/outreach.yml@43ff13743f09043eb94fc81cd1beb0975b82cc3a
     with:
-      mode: ${{ github.event_name == 'schedule' && 'send' || inputs.mode }}
+      mode: ${{ inputs.mode }}
       source_ref: 43ff13743f09043eb94fc81cd1beb0975b82cc3a
     secrets:
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
