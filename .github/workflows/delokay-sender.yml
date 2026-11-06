@@ -1,10 +1,5 @@
 name: Delokay sender
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/delokay-sender.yml']
-  schedule:
-    - cron: '*/5 6-16 * * *'
   workflow_dispatch:
     inputs:
       mode:
